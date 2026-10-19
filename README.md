@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="RUNBOOK.md"><img src="https://img.shields.io/badge/Runbook-Authoritative_Stages-38BDF8?style=flat-square&logo=gitbook&logoColor=white" alt="Runbook" /></a>
+  <a href="docs/CONNECTORS_ROADMAP.md"><img src="https://img.shields.io/badge/Roadmap-Connectors_P1--P4-EC4899?style=flat-square&logo=target&logoColor=white" alt="Roadmap" /></a>
   <a href="AGENTS.md"><img src="https://img.shields.io/badge/Agent_Protocol-Guarded_Stages_0--5-818CF8?style=flat-square&logo=robot&logoColor=white" alt="Agent Protocol" /></a>
   <a href="https://cloud.google.com/vertex-ai-search-and-conversation"><img src="https://img.shields.io/badge/Vertex_AI_Search-Gemini_Enterprise-4285F4?style=flat-square&logo=googlecloud&logoColor=white" alt="Vertex AI Search" /></a>
   <a href="https://www.terraform.io/"><img src="https://img.shields.io/badge/Terraform-%3E=_1.5.0-7B42BC?style=flat-square&logo=terraform&logoColor=white" alt="Terraform" /></a>
@@ -32,6 +33,7 @@ It deploys:
 - **Atlassian Jira Data Connector** with multi-entity data stores (`project`, `issue`, `attachment`, `comment`, `worklog`) and optional Action/BAP integration.
 - **Unified Intranet Search App & Governed Assistant** (`google_discovery_engine_search_engine`, `google_discovery_engine_assistant`).
 - **Automated Seat Distribution & Verification** tooling via `Makefile`.
+- **Planned Enterprise Connectors Roadmap:** Prioritized pipeline tracking [Confluence (P1), Slack (P2), HubSpot (P3), and People Directory (P4)](docs/CONNECTORS_ROADMAP.md).
 
 ---
 
@@ -210,13 +212,25 @@ make test              # Run unit tests and Terraform validation
 │   └── workflows/
 │       └── deploy.md                # Antigravity workflow
 ├── .github/
+│   ├── ISSUE_TEMPLATE/
+│   │   ├── config.yml               # Issue form metadata & runbook pointer
+│   │   └── feature_request.yml      # Structured connector proposal schema
+│   ├── issues/                      # Ready-to-publish feature request specs
+│   │   ├── 01_confluence_connector.md # P1: Atlassian Confluence
+│   │   ├── 02_slack_connector.md    # P2: Slack Enterprise Grid
+│   │   ├── 03_hubspot_connector.md  # P3: HubSpot CRM
+│   │   └── 04_people_directory_connector.md # P4: Google People Directory
 │   └── workflows/
 │       └── terraform.yml            # CI: fmt, validate, test harness
 ├── config/
 │   ├── license_allocations.example.json # Example seat allocation schema
 │   └── license_allocations.json         # Runtime allocations (gitignored)
+├── docs/
+│   ├── CONNECTORS_ROADMAP.md        # Prioritized connector pipeline (P1-P4)
+│   └── ...                          # Supporting architecture collateral
 ├── scripts/
 │   ├── allocate_licenses.py         # License distribution & auto-registration tool
+│   ├── create_github_issues.sh      # Batch publisher for planned connector issues
 │   ├── plan_guard.py                # Safety barrier preventing destroy/replace
 │   ├── status.py                    # State-driven phase detection engine
 │   ├── test_red.py                  # Negative & contract testing harness

@@ -1,0 +1,70 @@
+name: 🚀 Connector Feature Request
+description: Propose a new enterprise data connector or integration for Gemini Prism
+title: "feat(connector): "
+labels: ["enhancement", "connector", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for proposing a new data connector for Gemini Prism. Please provide details below to help us evaluate and design the Terraform resource blocks and Discovery Engine integration.
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: What is the priority level for this connector?
+      options:
+        - "P1 - High (Core Enterprise Knowledge)"
+        - "P2 - Medium-High (Critical Collaboration Tool)"
+        - "P3 - Medium (CRM / Sales Pipeline)"
+        - "P4 - Low-Medium (Directory & People Ops)"
+    validations:
+      required: true
+  - type: input
+    id: target_system
+    attributes:
+      label: Target Enterprise System / Service
+      description: e.g. Atlassian Confluence, Slack Enterprise Grid, HubSpot CRM, Google People Directory
+      placeholder: "e.g. Confluence Cloud"
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Connector Description & Objectives
+      description: What business data does this connector refract into Gemini Enterprise?
+    validations:
+      required: true
+  - type: checkboxes
+    id: entities
+    attributes:
+      label: Entities to Ingest
+      description: Check all entities relevant for this connector
+      options:
+        - label: Documents / Pages / Articles
+        - label: Messages / Chat Threads / Canvases
+        - label: Tickets / Issues / Tasks
+        - label: Contacts / Accounts / Deals
+        - label: User Profiles / Organization Chart
+        - label: File Attachments / Media
+  - type: dropdown
+    id: auth_method
+    attributes:
+      label: Authentication & Authorization Model
+      options:
+        - "OAuth 2.0 (3LO / User Delegated)"
+        - "OAuth 2.0 (Client Credentials / Service App)"
+        - "Domain-Wide Delegation (DWD)"
+        - "API Token / Secret Key (Secret Manager)"
+        - "Federated Identity (SAML / OIDC)"
+    validations:
+      required: true
+  - type: textarea
+    id: terraform_design
+    attributes:
+      label: Proposed Terraform Variables & Resources
+      description: Suggest config variables (`enable_<connector>_connector`, `<connector>_config`, `<connector>_auth`) or Discovery Engine collections.
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance Criteria
+      description: What conditions must be met for this connector to be considered production-ready?

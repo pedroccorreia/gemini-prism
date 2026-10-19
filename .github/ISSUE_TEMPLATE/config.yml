@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Gemini Prism Documentation & Runbook
+    url: https://github.com/pedroccorreia/gemini-prism/blob/main/RUNBOOK.md
+    about: Please consult the authoritative Runbook and Practitioner's Guide before opening an issue.

@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGlow" cx="50%" cy="45%" r="65%">
+      <stop offset="0%" stop-color="#0F172A" />
+      <stop offset="60%" stop-color="#080C16" />
+      <stop offset="100%" stop-color="#05070D" />
+    </radialGradient>
+
+    <!-- Prism Frame Gradient -->
+    <linearGradient id="prismFrame" x1="160" y1="360" x2="320" y2="90" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.9"/>
+      <stop offset="45%" stop-color="#E0F2FE" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#818CF8" stop-opacity="0.85"/>
+    </linearGradient>
+
+    <!-- Glass Facet Shading -->
+    <linearGradient id="facetLeft" x1="160" y1="230" x2="256" y2="230" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0284C7" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#38BDF8" stop-opacity="0.08"/>
+    </linearGradient>
+
+    <!-- Ray Glow Filter -->
+    <filter id="rayGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <!-- Spark Flare Gradient -->
+    <linearGradient id="sparkGradient" x1="340" y1="230" x2="430" y2="230" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="40%" stop-color="#4285F4"/>
+      <stop offset="100%" stop-color="#A855F7"/>
+    </linearGradient>
+
+    <!-- Spark Outer Glow -->
+    <filter id="sparkGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="7" result="blur1"/>
+      <feGaussianBlur stdDeviation="14" result="blur2"/>
+      <feMerge>
+        <feMergeNode in="blur2"/>
+        <feMergeNode in="blur1"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Canvas Background -->
+  <rect width="512" height="512" rx="36" fill="url(#bgGlow)" />
+
+  <!-- Subtle Ambient Glow behind Prism -->
+  <circle cx="260" cy="225" r="140" fill="#38BDF8" fill-opacity="0.05" filter="url(#sparkGlow)" />
+
+  <!-- ==================== 5 INPUT RAYS (Left) ==================== -->
+  <g stroke="#BAE6FD" stroke-width="2.6" stroke-linecap="round" filter="url(#rayGlow)" opacity="0.9">
+    <!-- Ray 1: Gmail -->
+    <line x1="88" y1="188" x2="218" y2="204" />
+    <!-- Ray 2: Calendar -->
+    <line x1="88" y1="209" x2="202" y2="221" />
+    <!-- Ray 3: Drive -->
+    <line x1="88" y1="230" x2="186" y2="238" />
+    <!-- Ray 4: Chat -->
+    <line x1="88" y1="251" x2="170" y2="255" />
+    <!-- Ray 5: Jira -->
+    <line x1="88" y1="272" x2="154" y2="272" />
+  </g>
+
+  <!-- ==================== PRISM GEOMETRY ==================== -->
+  <!-- Outer Beveled Triangle -->
+  <polygon points="256,108 136,332 376,332" 
+           stroke="url(#prismFrame)" stroke-width="6" stroke-linejoin="round" 
+           fill="#0B132B" fill-opacity="0.5" />
+
+  <!-- Inner Bevel Facet -->
+  <polygon points="256,158 178,308 334,308" 
+           stroke="url(#prismFrame)" stroke-width="2.5" stroke-linejoin="round" 
+           fill="url(#facetLeft)" />
+
+  <!-- Bevel Seam Lines -->
+  <line x1="256" y1="108" x2="256" y2="158" stroke="url(#prismFrame)" stroke-width="2.5" opacity="0.7" />
+  <line x1="136" y1="332" x2="178" y2="308" stroke="url(#prismFrame)" stroke-width="2.5" opacity="0.7" />
+  <line x1="376" y1="332" x2="334" y2="308" stroke="url(#prismFrame)" stroke-width="2.5" opacity="0.7" />
+
+  <!-- ==================== REFRACTION & CONVERGENCE (Inside) ==================== -->
+  <g stroke="#E0F2FE" stroke-width="2.4" opacity="0.95" filter="url(#rayGlow)">
+    <line x1="218" y1="204" x2="330" y2="228" />
+    <line x1="202" y1="221" x2="330" y2="228" />
+    <line x1="186" y1="238" x2="330" y2="228" />
+    <line x1="170" y1="255" x2="330" y2="228" />
+    <line x1="154" y1="272" x2="330" y2="228" />
+  </g>
+
+  <!-- Converged Exit Beam -->
+  <line x1="330" y1="228" x2="376" y2="228" stroke="#38BDF8" stroke-width="3.5" filter="url(#sparkGlow)" />
+
+  <!-- ==================== GEMINI 4-POINT SPARK (Right) ==================== -->
+  <g transform="translate(396, 228)" filter="url(#sparkGlow)">
+    <!-- 4-point star path -->
+    <path d="M 0,-44 Q 0,-4 36,0 Q 0,4 0,44 Q 0,4 -36,0 Q 0,-4 0,-44 Z" 
+          fill="url(#sparkGradient)" />
+    <!-- Center white-hot pinpoint -->
+    <circle cx="0" cy="0" r="5" fill="#FFFFFF" />
+  </g>
+
+  <!-- ==================== TYPOGRAPHY (PRISM) ==================== -->
+  <text x="256" y="424" 
+        font-family="system-ui, -apple-system, 'SF Pro Display', 'Inter', 'Google Sans', sans-serif" 
+        font-size="44" 
+        font-weight="700" 
+        letter-spacing="14" 
+        fill="#F8FAFC" 
+        text-anchor="middle">PRISM</text>
+
+  <text x="256" y="456" 
+        font-family="system-ui, -apple-system, 'Inter', sans-serif" 
+        font-size="12" 
+        font-weight="500" 
+        letter-spacing="3" 
+        fill="#94A3B8" 
+        text-anchor="middle">GEMINI ENTERPRISE PROVISIONING</text>
+</svg>

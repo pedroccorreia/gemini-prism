@@ -1,0 +1,57 @@
+# Customer & Identity Configuration
+customer_id           = "example-customer"
+customer_name         = "Example Customer"
+environments          = ["non-prod", "prod"]
+project_id_prefix     = ""
+company_domain        = "example.com"
+workspace_customer_id = "C01234567"
+workspace_admin_email = "admin@example.com"
+
+# Google Cloud Resource Hierarchy & Billing
+billing_account = "0X1XXX-XXXXXX-XXXXXX"
+billing_project = null # Optional: Project ID for API quota & billing overrides. Omit or set to null to use caller's default project.
+folder_id       = null # Optional: GCP Folder ID. If omitted or null, projects are created directly at the root of the Organization.
+org_id          = null # Optional: GCP Organization ID (used if folder_id is null/omitted).
+sa_email        = null # Optional: Custom provisioner service account email. If omitted or null, active Application Default Credentials (ADC) are used.
+
+# Discovery Engine & Workspace Connectors
+location             = "global"
+enable_connectors    = false
+workspace_connectors = ["google_mail", "google_calendar", "google_drive", "google_chat"]
+
+# Gemini Enterprise Assistant Customization
+assistant_instructions = "You are an enterprise AI assistant helping employees find information across Google Workspace and internal knowledge bases. Provide accurate, helpful, and concise answers based on available enterprise data."
+
+# Seat Allocations per Environment
+seat_allocations = {
+  prod     = 4
+  non-prod = 1
+}
+
+# License Config details (set after billing account subscription is provisioned)
+license_config_id = "00000000-0000-0000-0000-000000000000"
+subscription_id   = "00000000-0000-0000-0000-000000000000"
+subscription_tier = "Gemini Enterprise Standard"
+
+# Atlassian Jira Connector (optional)
+enable_jira_connector = false
+jira_auth_type        = "OAUTH"
+
+jira_config = {
+  instance_uri                 = "https://example.atlassian.net"
+  instance_id                  = "" # Jira Cloud ID UUID (fetch via: curl -s https://<site>.atlassian.net/_edge/tenant_info | jq -r .cloudId)
+  data_source                  = "jira"
+  data_source_version          = 3
+  sync_mode                    = "PERIODIC"
+  refresh_interval             = "86400s"
+  incremental_refresh_interval = "10800s"
+  entities                     = ["project", "issue", "attachment", "comment", "worklog"]
+  static_ip_enabled            = false
+  enable_actions               = false
+  enabled_actions              = ["create_issue", "update_issue", "change_issue_status", "create_comment", "update_comment", "upload_attachment"]
+}
+
+# Note: Sensitive credentials should be passed via TF_VAR_jira_auth environment variable, e.g.:
+# export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"..."}'  # for OAUTH (v3)
+# or
+# export TF_VAR_jira_auth='{"user_account":"user@example.com","api_token":"..."}'  # for BASIC_AUTH / API_TOKEN (v1)

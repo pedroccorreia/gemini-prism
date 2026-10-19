@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" fill="none">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bannerBg" x1="0" y1="0" x2="1200" y2="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0B1120" />
+      <stop offset="45%" stop-color="#080D18" />
+      <stop offset="100%" stop-color="#04060A" />
+    </linearGradient>
+
+    <!-- Grid Pattern -->
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1E293B" stroke-width="0.75" stroke-opacity="0.4" />
+    </pattern>
+
+    <!-- Prism Glow Filter -->
+    <filter id="glowBanner" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <!-- Spark Flare Gradient -->
+    <linearGradient id="sparkGradBanner" x1="280" y1="150" x2="360" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="45%" stop-color="#4285F4"/>
+      <stop offset="100%" stop-color="#A855F7"/>
+    </linearGradient>
+
+    <!-- Prism Frame Gradient -->
+    <linearGradient id="prismFrameBanner" x1="120" y1="240" x2="240" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8" stop-opacity="0.9"/>
+      <stop offset="50%" stop-color="#E0F2FE" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#818CF8" stop-opacity="0.9"/>
+    </linearGradient>
+
+    <!-- Radial Flare Glow -->
+    <radialGradient id="sparkHalo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#4285F4" stop-opacity="0.4"/>
+      <stop offset="60%" stop-color="#8B5CF6" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="320" rx="16" fill="url(#bannerBg)" />
+  <rect width="1200" height="320" rx="16" fill="url(#grid)" />
+
+  <!-- Left Ambient Glow behind Mark -->
+  <circle cx="210" cy="155" r="130" fill="#38BDF8" fill-opacity="0.06" filter="url(#glowBanner)" />
+
+  <!-- ==================== LEFT: OPTICAL CONVERGENCE MARK ==================== -->
+  <!-- 5 Input Rays -->
+  <g stroke="#BAE6FD" stroke-width="2.2" stroke-linecap="round" filter="url(#glowBanner)" opacity="0.85">
+    <line x1="36" y1="120" x2="152" y2="134" />
+    <line x1="36" y1="138" x2="138" y2="149" />
+    <line x1="36" y1="156" x2="124" y2="164" />
+    <line x1="36" y1="174" x2="110" y2="178" />
+    <line x1="36" y1="192" x2="96" y2="192" />
+  </g>
+
+  <!-- Connector Names on Beams -->
+  <g font-family="system-ui, sans-serif" font-size="9" font-weight="600" fill="#94A3B8" opacity="0.75">
+    <text x="40" y="115">GMAIL</text>
+    <text x="40" y="133">CALENDAR</text>
+    <text x="40" y="151">DRIVE</text>
+    <text x="40" y="169">CHAT</text>
+    <text x="40" y="187">JIRA</text>
+  </g>
+
+  <!-- Prism Outer Bevel -->
+  <polygon points="186,66 84,244 288,244" 
+           stroke="url(#prismFrameBanner)" stroke-width="4.5" stroke-linejoin="round" 
+           fill="#0B132B" fill-opacity="0.5" />
+
+  <!-- Prism Inner Bevel -->
+  <polygon points="186,108 120,224 252,224" 
+           stroke="url(#prismFrameBanner)" stroke-width="2" stroke-linejoin="round" 
+           fill="#0284C7" fill-opacity="0.08" />
+
+  <line x1="186" y1="66" x2="186" y2="108" stroke="url(#prismFrameBanner)" stroke-width="2" opacity="0.6" />
+  <line x1="84" y1="244" x2="120" y2="224" stroke="url(#prismFrameBanner)" stroke-width="2" opacity="0.6" />
+  <line x1="288" y1="244" x2="252" y2="224" stroke="url(#prismFrameBanner)" stroke-width="2" opacity="0.6" />
+
+  <!-- Internal Refraction Lines -->
+  <g stroke="#E0F2FE" stroke-width="2" opacity="0.9" filter="url(#glowBanner)">
+    <line x1="152" y1="134" x2="248" y2="155" />
+    <line x1="138" y1="149" x2="248" y2="155" />
+    <line x1="124" y1="164" x2="248" y2="155" />
+    <line x1="110" y1="178" x2="248" y2="155" />
+    <line x1="96" y1="192" x2="248" y2="155" />
+  </g>
+
+  <!-- Converged Beam Exit -->
+  <line x1="248" y1="155" x2="288" y2="155" stroke="#38BDF8" stroke-width="3" filter="url(#glowBanner)" />
+
+  <!-- Gemini Star Halo -->
+  <circle cx="316" cy="155" r="48" fill="url(#sparkHalo)" />
+
+  <!-- Gemini Star Spark -->
+  <g transform="translate(316, 155)" filter="url(#glowBanner)">
+    <path d="M 0,-34 Q 0,-3 28,0 Q 0,3 0,34 Q 0,3 -28,0 Q 0,-3 0,-34 Z" 
+          fill="url(#sparkGradBanner)" />
+    <circle cx="0" cy="0" r="4" fill="#FFFFFF" />
+  </g>
+
+  <!-- ==================== RIGHT: BRAND IDENTITY & TEXT ==================== -->
+  <!-- Top Architecture Pill -->
+  <g transform="translate(420, 52)">
+    <rect width="364" height="26" rx="13" fill="#1E293B" fill-opacity="0.8" stroke="#334155" stroke-width="1" />
+    <text x="14" y="17" 
+          font-family="system-ui, -apple-system, sans-serif" 
+          font-size="11" 
+          font-weight="700" 
+          letter-spacing="1.5" 
+          fill="#38BDF8">AUTONOMOUS IAC · GEMINI ENTERPRISE</text>
+  </g>
+
+  <!-- Title: PRISM -->
+  <text x="420" y="132" 
+        font-family="system-ui, -apple-system, 'SF Pro Display', 'Inter', 'Google Sans', sans-serif" 
+        font-size="56" 
+        font-weight="800" 
+        letter-spacing="16" 
+        fill="#F8FAFC">PRISM</text>
+
+  <!-- Subtitle -->
+  <text x="420" y="170" 
+        font-family="system-ui, -apple-system, 'Inter', sans-serif" 
+        font-size="19" 
+        font-weight="500" 
+        fill="#E2E8F0">Refracting enterprise knowledge into one governed assistant.</text>
+
+  <!-- Description -->
+  <text x="420" y="198" 
+        font-family="system-ui, -apple-system, 'Inter', sans-serif" 
+        font-size="13.5" 
+        font-weight="400" 
+        fill="#94A3B8">Production-grade Terraform IaC · 5 Guarded Stages · Zero-Cent Drift · DWD &amp; Jira 3LO</text>
+
+  <!-- Badges / Connector Pills Row -->
+  <g transform="translate(420, 226)">
+    <!-- Badge: Gmail -->
+    <rect x="0" y="0" width="82" height="26" rx="6" fill="#1E293B" stroke="#475569" stroke-width="0.8" />
+    <text x="41" y="17" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#CBD5E1" text-anchor="middle">✉ Gmail</text>
+
+    <!-- Badge: Calendar -->
+    <rect x="90" y="0" width="96" height="26" rx="6" fill="#1E293B" stroke="#475569" stroke-width="0.8" />
+    <text x="138" y="17" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#CBD5E1" text-anchor="middle">📅 Calendar</text>
+
+    <!-- Badge: Drive -->
+    <rect x="194" y="0" width="80" height="26" rx="6" fill="#1E293B" stroke="#475569" stroke-width="0.8" />
+    <text x="234" y="17" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#CBD5E1" text-anchor="middle">📁 Drive</text>
+
+    <!-- Badge: Chat -->
+    <rect x="282" y="0" width="76" height="26" rx="6" fill="#1E293B" stroke="#475569" stroke-width="0.8" />
+    <text x="320" y="17" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#CBD5E1" text-anchor="middle">💬 Chat</text>
+
+    <!-- Badge: Jira -->
+    <rect x="366" y="0" width="118" height="26" rx="6" fill="#1E293B" stroke="#475569" stroke-width="0.8" />
+    <text x="425" y="17" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#CBD5E1" text-anchor="middle">🔷 Atlassian Jira</text>
+
+    <!-- Badge: Discovery Engine -->
+    <rect x="492" y="0" width="156" height="26" rx="6" fill="#1E293B" stroke="#38BDF8" stroke-width="0.8" />
+    <text x="570" y="17" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="#38BDF8" text-anchor="middle">✦ Governed Assistant</text>
+  </g>
+</svg>

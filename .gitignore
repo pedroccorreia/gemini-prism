@@ -1,0 +1,43 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+.plans/
+*.tfplan
+
+# Credentials & Service Account Keys
+*key*.json
+*credentials*.json
+token*.json
+
+# Generated Runtime Configurations
+config/license_allocations.json
+!config/license_allocations.example.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Scratch / Local Artifacts
+discovery_v1beta.json
+*.log
+
+# OS & Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp

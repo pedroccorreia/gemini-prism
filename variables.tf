@@ -201,22 +201,23 @@ variable "enable_people_directory_connector" {
 
 variable "people_directory_config" {
   type = object({
-    data_source             = optional(string, "google_people_directory")
+    data_source             = optional(string, "native_cloud_identity")
     collection_id           = optional(string, "people-directory-collection")
     display_name            = optional(string, "Google People Directory")
     include_suspended_users = optional(bool, false)
     org_units_include       = optional(list(string), []) # Target specific OUs (e.g. /Employees)
     custom_schemas_include  = optional(list(string), []) # Include custom employee attributes
     refresh_interval        = optional(string, "86400s") # Daily synchronization
-    sync_mode               = optional(string, "INCREMENTAL")
-    entities                = optional(list(string), ["user_profile", "job_architecture", "reporting_hierarchy", "location_contact", "custom_attributes"])
+    sync_mode               = optional(string, "PERIODIC")
+    entities                = optional(list(string), ["users"])
     auto_run_disabled       = optional(bool, false)
   })
   description = "Configuration parameters for Google Cloud Identity / Workspace People & Org Directory data connector"
   default     = {}
 
   validation {
-    condition     = contains(["google_people_directory", "people_directory"], coalesce(var.people_directory_config.data_source, "google_people_directory"))
-    error_message = "people_directory_config.data_source must be 'google_people_directory' or 'people_directory'."
+    condition     = contains(["native_cloud_identity", "google_people_directory", "people_directory"], coalesce(var.people_directory_config.data_source, "native_cloud_identity"))
+    error_message = "people_directory_config.data_source must be 'native_cloud_identity', 'google_people_directory', or 'people_directory'."
   }
 }
+

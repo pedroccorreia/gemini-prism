@@ -195,35 +195,41 @@ locals {
     } : {}
   )
 
+  # Map user-friendly or legacy data_source names to canonical Discovery Engine data_source
+  effective_people_directory_data_source = "native_cloud_identity"
+
   # Google Cloud Identity / Workspace People & Org Directory connector per environment (when enabled)
   people_directory_environment_connectors = var.enable_people_directory_connector ? {
     for env_key, env_val in local.environments :
     "${env_key}-people-directory" => {
       env_key             = env_key
       connector           = "people_directory"
-      data_source         = coalesce(var.people_directory_config.data_source, "google_people_directory")
+      data_source         = local.effective_people_directory_data_source
       data_source_version = null
       display_name        = coalesce(var.people_directory_config.display_name, "Google People Directory")
       collection_id       = coalesce(var.people_directory_config.collection_id, "people-directory-collection")
       project_id          = google_project.projects[env_key].project_id
       entities = [
-        for e in coalesce(var.people_directory_config.entities, ["user_profile", "job_architecture", "reporting_hierarchy", "location_contact", "custom_attributes"]) : {
-          entity_name = e
+        {
+          entity_name = "users"
           params      = length(local.people_directory_entity_params) > 0 ? jsonencode(local.people_directory_entity_params) : null
         }
       ]
       connector_modes              = ["DATA_INGESTION"]
-      sync_mode                    = coalesce(var.people_directory_config.sync_mode, "INCREMENTAL")
+      sync_mode                    = "PERIODIC"
       refresh_interval             = coalesce(var.people_directory_config.refresh_interval, "86400s")
       incremental_refresh_interval = null
       static_ip_enabled            = false
       auto_run_disabled            = coalesce(var.people_directory_config.auto_run_disabled, false)
       incremental_sync_disabled    = false
       instance_uri                 = ""
-      params                       = {}
-      action_params                = {}
-      enable_actions               = false
-      enabled_actions              = []
+      params = {
+        "impersonated_user_email_address" = var.workspace_admin_email
+        "super_admin_service_account"     = "service-${google_project.projects[env_key].number}@gcp-sa-discoveryengine.iam.gserviceaccount.com"
+      }
+      action_params   = {}
+      enable_actions  = false
+      enabled_actions = []
     }
   } : {}
 
@@ -240,6 +246,7 @@ locals {
     "https://www.googleapis.com/auth/admin.directory.group.member.readonly",
     "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
     "https://www.googleapis.com/auth/admin.directory.customschema.readonly",
+    "https://www.googleapis.com/auth/directory.readonly",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
@@ -247,6 +254,7 @@ locals {
     "https://www.googleapis.com/auth/chat.messages.readonly",
     "https://www.googleapis.com/auth/chat.memberships.readonly"
   ]
+
 
   # Normalized optional parameters
   effective_sa_email  = trimspace(coalesce(var.sa_email, "")) != "" ? trimspace(var.sa_email) : null
@@ -282,6 +290,17 @@ resource "google_project_service_identity" "discoveryengine_sa" {
 
   depends_on = [google_project_service.services]
 }
+
+# Service Account Token Creator role for Discovery Engine Service Agent (required by native_cloud_identity)
+resource "google_project_iam_member" "discoveryengine_sa_token_creator" {
+  for_each = var.enable_people_directory_connector ? local.environments : {}
+  project  = google_project.projects[each.key].project_id
+  role     = "roles/iam.serviceAccountTokenCreator"
+  member   = "serviceAccount:service-${google_project.projects[each.key].number}@gcp-sa-discoveryengine.iam.gserviceaccount.com"
+
+  depends_on = [google_project_service_identity.discoveryengine_sa]
+}
+
 
 # Optional Provisioner Service Account IAM binding
 resource "google_project_iam_member" "sa_discoveryengine_admin" {

@@ -12,7 +12,7 @@
 
 ### 1. Target Architecture & Provisioned Resource Footprint
 
-The **Prism** Infrastructure-as-Code (IaC) stack automates the creation of dedicated Google Cloud environment projects, configures Google Workspace (`GSUITE`) location-level identity and access control, wires real-time federated Google Workspace connectors alongside multi-entity Atlassian Jira connectors, provisions a unified Intranet Search Engine and Governed Enterprise Assistant, and distributes Gemini Enterprise seat licenses from a central Cloud Billing Account pool.
+The **Prism** Infrastructure-as-Code (IaC) stack automates the creation of dedicated Google Cloud environment projects, configures Google Workspace (`GSUITE`) location-level identity and access control, wires real-time federated Google Workspace connectors alongside multi-entity Atlassian Jira and federated Confluence connectors, provisions a unified Intranet Search Engine and Governed Enterprise Assistant, and distributes Gemini Enterprise seat licenses from a central Cloud Billing Account pool.
 
 ```mermaid
 flowchart TD
@@ -20,6 +20,7 @@ flowchart TD
     WSGroup["Cloud Identity Group ({customer_id}-{env}-users)"]
     WSAdmin["Google Workspace Admin Console (DWD 21-Digit Client ID)"]
     JiraCloud["Atlassian Jira Cloud (OAuth 2.0 3LO v3 / API Token v1)"]
+    ConfluenceCloud["Atlassian Confluence (OAuth 2.0 3LO v4 / DC v1)"]
     BillingPool["GCP Cloud Billing Account (Subscription Seat Pool)"]
   end
 
@@ -33,27 +34,31 @@ flowchart TD
   subgraph DataAndApps["Discovery Engine Connectors, Search App & Assistant"]
     WSConns["Federated Workspace Connectors (Gmail, Calendar, Drive, Chat)"]
     JiraConn["Atlassian Jira Connector (5 Entities + Optional BAP Actions)"]
+    ConfluenceConn["Atlassian Confluence Connector (Federated v4 Cloud / DC v1)"]
     Engine["Unified Intranet Search App ({customer_id}-{env}-search-engine)"]
     Assistant["Governed Enterprise Assistant (default_assistant + Web Grounding)"]
   end
 
   WSAdmin -.->|"Authorizes 9 Read-Only OAuth Scopes"| SAgent
   JiraCloud -.->|"TF_VAR_jira_auth Credentials"| JiraConn
+  ConfluenceCloud -.->|"TF_VAR_confluence_auth / Jira Fallback"| ConfluenceConn
   BillingPool -.->|"distributeLicenseConfig (make licenses)"| UStore
   SAgent --> WSConns
   ACL --> UStore
   ACL --> WSConns
   ACL --> JiraConn
+  ACL --> ConfluenceConn
   WSConns --> Engine
   JiraConn --> Engine
+  ConfluenceConn --> Engine
   Engine --> Assistant
   WSGroup -->|"roles/discoveryengine.user"| Engine
 ```
 
 #### Core Architectural Invariants
 
-1. **Mandatory `global` Location for Workspace Federation:** The `location` variable defaults to `"global"`. Google Workspace connectors (`google_mail`, `google_calendar`, `google_drive`, `google_chat`) operate in `FEDERATED` mode (`refresh_interval = "0s"`). Queries execute in real time against Google Workspace APIs under the end-user's OAuth identity without ingesting or copying Workspace content into persistent GCP storage. Discovery Engine requires the `global` location for federated Workspace collections.
-2. **Staged Provisioning Across Human Authorization Gates:** The Google-managed Discovery Engine Service Agent (`service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com`) does not exist until the customer GCP project is created and `discoveryengine.googleapis.com` service identity generation is invoked. Consequently, provisioning is decoupled into **Stage 1 (Foundation Apply)** and **Stage 3 (Connectors, Engines & Assistants Apply)**, separated by **Stage 2 (Human Admin Authorization Gate)** so Domain-Wide Delegation (DWD) and Atlassian Jira OAuth apps can be authorized before connector creation.
+1. **Mandatory `global` Location for Workspace & Confluence Federation:** The `location` variable defaults to `"global"`. Google Workspace connectors (`google_mail`, `google_calendar`, `google_drive`, `google_chat`) and Atlassian Confluence connectors operate in `FEDERATED` mode (`refresh_interval = "0s"`). Queries execute in real time against Google Workspace and Confluence APIs under the end-user's OAuth identity without copying content into persistent GCP storage. Discovery Engine requires the `global` location for federated collections.
+2. **Staged Provisioning Across Human Authorization Gates:** The Google-managed Discovery Engine Service Agent (`service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com`) does not exist until the customer GCP project is created and `discoveryengine.googleapis.com` service identity generation is invoked. Consequently, provisioning is decoupled into **Stage 1 (Foundation Apply)** and **Stage 3 (Connectors, Engines & Assistants Apply)**, separated by **Stage 2 (Human Admin Authorization Gate)** so Domain-Wide Delegation (DWD), Atlassian Jira, and Atlassian Confluence OAuth apps can be authorized before connector creation.
 3. **Multi-Layered Production Deletion Protection:** Environment keys matching `prod` or `production` automatically set `deletion_policy = "PREVENT"` on `google_project.projects`. In addition, `scripts/plan_guard.py` blocks any Terraform plan containing resource deletions or replacements (`delete` or `replace`), and `scripts/status.py` aborts immediately if `terraform.tfstate` contains projects belonging to a different customer (`CRITICAL STATE MISMATCH`).
 
 ### 2. Local Workstation & CI Runner Toolchain Requirements
@@ -189,7 +194,24 @@ The repository supports deploying the **Atlassian Jira Data Connector** (`jira-c
 | **Runtime Secret Environment Variable (`TF_VAR_jira_auth`)** | `export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"..."}'` | `export TF_VAR_jira_auth='{"user_account":"user@example.com","api_token":"..."}'` |
 | **Static IP Allowlisting (Optional)** | Set `jira_config.static_ip_enabled = true`; allowlist the egress IPs emitted in `terraform output jira_checklist` (`static_ip_addresses`) inside [admin.atlassian.com](https://admin.atlassian.com). | Same as Option A. |
 
-#### 3.5 Plane 5: Google People & Org Directory Requirements (When `enable_people_directory_connector = true`)
+#### 3.5 Plane 5: Atlassian Confluence Cloud / Data Center Requirements (When `enable_confluence_connector = true`)
+
+The repository supports deploying the **Atlassian Confluence Federated Data Connector** (`confluence-federated-collection`) in three flexible deployment topologies:
+1. **Shared Atlassian Tenant (Jira + Confluence):** When both `enable_jira_connector` and `enable_confluence_connector` are `true`, Confluence automatically inherits `jira_auth`, `jira_auth_type`, `jira_config.instance_uri`, and `jira_config.instance_id` whenever Confluence credentials are left empty.
+2. **Dedicated Confluence Deployment:** Confluence is configured independently with its own `confluence_auth_type` and `confluence_auth` (`TF_VAR_confluence_auth`).
+3. **Confluence-Only Deployment:** Deploy Confluence without Jira or Google Workspace (`enable_connectors = false`, `enable_jira_connector = false`, `enable_confluence_connector = true`).
+
+| Requirement Dimension | Option A: OAuth 2.0 3LO (`confluence_auth_type = "OAUTH"`) — **Recommended** | Option B: Data Center Basic Auth (`confluence_auth_type = "BASIC_AUTH"`) |
+| :--- | :--- | :--- |
+| **Connector Version (`data_source_version`)** | `4` (Cloud Federated GA, automatically selected by `main.tf` when `data_source = "confluence"`) | `1` (Data Center, automatically selected by `main.tf` when `data_source = "confluence_server"`) |
+| **Supported Modes (`connector_modes`)** | `["FEDERATED"]` or `["FEDERATED", "ACTIONS"]` (`DATA_INGESTION` is rejected) | `["FEDERATED"]` |
+| **Provisioned Entities** | `space`, `page`, `blogpost` (normalized to `blog` for Cloud v4), `attachment`, `comment` (configurable via `confluence_config.entities`, with optional `space_keys_include` / `space_keys_exclude`) | `spaces`, `pages`, `blogposts`, `attachments`, `comments` |
+| **OAuth Callback / Redirect URLs** | **Ingestion Callback:** `https://vertexaisearch.cloud.google.com/console/oauth/confluence_oauth.html`<br/>**Actions Callback:** `https://vertexaisearch.cloud.google.com/oauth-redirect` | Not applicable (Data Center on-premises) |
+| **Required Atlassian OAuth Scopes** | **Federated Ingestion (4 Scopes):** `read:confluence-content.all`, `read:confluence-space.summary`, `read:confluence-user`, `offline_access`<br/>**BAP Actions (Optional):** `write:confluence-content` | Inherited from the Confluence service user account |
+| **Runtime Secret Environment Variable (`TF_VAR_confluence_auth`)** | `export TF_VAR_confluence_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"..."}'`<br/>*(or omitted to fall back to `TF_VAR_jira_auth`)* | `export TF_VAR_confluence_auth='{"user_account":"svc-prism@example.com","password":"..."}'` |
+| **Checklist & Helper Target** | `make confluence-checklist` | `make confluence-checklist` |
+
+#### 3.6 Plane 6: Google People & Org Directory Requirements (When `enable_people_directory_connector = true`)
 
 The repository supports provisioning a dedicated **Google Cloud Identity / Workspace People & Org Directory** data connector (`people-directory-collection`) for ingesting organizational hierarchy, employee profiles, department taxonomy, job architecture, skills, and office locations into Gemini Enterprise.
 
@@ -233,6 +255,10 @@ Every deployment is driven by `terraform.tfvars` (copied from `terraform.tfvars.
 | `jira_auth_type` | `string` | `"OAUTH"` | Stage 3 | Validated to be `"OAUTH"`, `"OAUTH2"`, `"BASIC_AUTH"`, `"API_TOKEN"`, or `"OAUTH_TWO_LEGGED"`. |
 | `jira_auth` | `object` | `{}` | Stage 3 | `sensitive = true` credential map (`client_id`, `client_secret`, `refresh_token`, `instance_id`, `user_account`, `api_token`). Supply via `TF_VAR_jira_auth`. |
 | `jira_config` | `object` | `{}` | Stage 3 | Jira connector settings (`instance_uri`, `instance_id`, `data_source`, `data_source_version`, `connector_modes`, `sync_mode`, `refresh_interval`, `incremental_refresh_interval`, `entities`, `static_ip_enabled`, `enable_actions`, `enabled_actions`, `project_keys_include`, `project_keys_exclude`, `auto_run_disabled`, `incremental_sync_disabled`, `extra_params`). |
+| `enable_confluence_connector` | `bool` | `false` | Stage 2 -> 3 | **Must be `false` in Stage 1.** Set to `true` when provisioning the Atlassian Confluence connector in Stage 3. |
+| `confluence_auth_type` | `string` | `null` | Stage 3 | Optional Confluence auth type (`"OAUTH"`, `"OAUTH2"`, `"BASIC_AUTH"`, `"API_TOKEN"`). Defaults to `jira_auth_type` when omitted. |
+| `confluence_auth` | `object` | `{}` | Stage 3 | `sensitive = true` credential map (`client_id`, `client_secret`, `refresh_token`, `instance_id`, `user_account`, `password`, `api_token`). Falls back to `jira_auth` when omitted. Supply via `TF_VAR_confluence_auth`. |
+| `confluence_config` | `object` | `{}` | Stage 3 | Confluence connector settings (`instance_uri`, `instance_id`, `data_source`, `data_source_version`, `connector_modes`, `sync_mode`, `refresh_interval`, `incremental_refresh_interval`, `entities`, `space_keys_include`, `space_keys_exclude`, `enable_actions`, `enabled_actions`, `auto_run_disabled`, `incremental_sync_disabled`, `extra_params`). |
 | `enable_people_directory_connector` | `bool` | `false` | Stage 2 -> 3 | **Must be `false` in Stage 1.** Set to `true` after Workspace DWD with Directory scopes is authorized. |
 | `people_directory_config` | `object` | `{}` | Stage 3 | People Directory settings (`data_source`, `collection_id`, `display_name`, `include_suspended_users`, `org_units_include`, `custom_schemas_include`, `refresh_interval`, `sync_mode`, `entities`, `auto_run_disabled`). |
 
@@ -246,6 +272,7 @@ Before executing Stage 1, confirm all items below are checked:
 - [ ] Operator identity holds the **Google Workspace Groups Admin** (or Super Admin) role in [admin.google.com/ac/roles](https://admin.google.com/ac/roles).
 - [ ] A **Google Workspace Super Admin** is available for Stage 2 Domain-Wide Delegation authorization at [admin.google.com/ac/owl/domainwidedelegation](https://admin.google.com/ac/owl/domainwidedelegation).
 - [ ] If deploying Atlassian Jira (`enable_jira_connector = true`), an **Atlassian Admin** is available to register the 3LO app or API token and supply `TF_VAR_jira_auth`.
+- [ ] If deploying Atlassian Confluence (`enable_confluence_connector = true`), an **Atlassian Admin** is available to register the Confluence OAuth app or confirm shared tenant credentials (`make confluence-checklist`).
 - [ ] An active **Gemini Enterprise subscription** with sufficient seat capacity exists on the Cloud Billing Account (`var.billing_account`).
 
 ## Part II: Practitioner's Guide — Using the Repository Assets
@@ -256,15 +283,15 @@ The `ge-provisioning` repository is architected for **deterministic, state-drive
 
 | Repository Asset | Category | Primary Role & When Practitioners Use It |
 | :--- | :--- | :--- |
-| `Makefile` | Command Surface | Primary operator interface (`make status`, `make plan-foundation`, `make apply-foundation`, `make dwd-checklist`, `make jira-checklist`, `make plan-connectors`, `make apply-connectors`, `make licenses-dryrun`, `make licenses`, `make licenses-list`, `make verify`, `make test`). |
-| `main.tf` | Terraform IaC | Defines the 9-step resource graph across customer environments: GCP Projects, APIs, Service Agent Identity, `GSUITE` Location ACL, Cloud Identity Groups, User Stores, Workspace & Jira Data Connectors, Search Engines, Engine IAM, Governed Assistants, and `config/license_allocations.json`. |
+| `Makefile` | Command Surface | Primary operator interface (`make status`, `make plan-foundation`, `make apply-foundation`, `make dwd-checklist`, `make jira-checklist`, `make confluence-checklist`, `make plan-connectors`, `make apply-connectors`, `make licenses-dryrun`, `make licenses`, `make licenses-list`, `make verify`, `make test`). |
+| `main.tf` | Terraform IaC | Defines the 9-step resource graph across customer environments: GCP Projects, APIs, Service Agent Identity, `GSUITE` Location ACL, Cloud Identity Groups, User Stores, Workspace, Jira & Confluence Data Connectors, Search Engines, Engine IAM, Governed Assistants, and `config/license_allocations.json`. |
 | `variables.tf` & `terraform.tfvars.example` | Terraform IaC | Declares all input variables, validation constraints, and a sanitized template for `terraform.tfvars`. |
-| `outputs.tf` | Terraform IaC | Emits environment resource maps plus structured `dwd_checklist` and `jira_checklist` objects. |
+| `outputs.tf` | Terraform IaC | Emits environment resource maps plus structured `dwd_checklist`, `jira_checklist`, and `confluence_checklist` objects. |
 | `providers.tf` & `versions.tf` | Terraform IaC | Configures `google`, `google-beta`, and `local` providers with dynamic `user_project_override` support. |
-| `scripts/status.py` | Automation Engine | Inspects live CLI tools, ADC identity, `terraform.tfvars`, and `terraform.tfstate` to detect the current deployment stage, enforce foreign state mismatch protection, and enrich DWD (`21-digit uniqueId`) and Jira (`cloudId`) checklists. |
+| `scripts/status.py` | Automation Engine | Inspects live CLI tools, ADC identity, `terraform.tfvars`, and `terraform.tfstate` to detect the current deployment stage, enforce foreign state mismatch protection, and enrich DWD (`21-digit uniqueId`), Jira (`cloudId`), and Confluence checklists. |
 | `scripts/plan_guard.py` | Safety Barrier | Inspects binary `.tfplan` files via `terraform show -json` before and after plan creation. Halts with exit code `1` if any resource would be deleted or replaced unless `ALLOW_DESTROY=1` is set. |
 | `scripts/allocate_licenses.py` | License Tooling | Discovers Billing Account subscriptions (`--discover`), runs preflight project number & pool capacity assertions (`--dry-run`), distributes seats (`--distribute`), lists allocations (`--list`), retracts seats (`--retract`), and emits `license_config_names` HCL (`--emit-tfvars`). |
-| `scripts/verify.py` | Health Verifier | Audits User Stores, License Configs, Workspace & Jira Data Connectors (`STATE_ACTIVE`, `realtimeState`, `actionState`, `blockingReasons`, `errors`), Search Apps, and Assistants with configurable polling (`--wait 15m`) and `--json` reporting. |
+| `scripts/verify.py` | Health Verifier | Audits User Stores, License Configs, Workspace, Jira & Confluence Data Connectors (`STATE_ACTIVE`, `realtimeState`, `actionState`, `blockingReasons`, `errors`), Search Apps, and Assistants with configurable polling (`--wait 15m`) and `--json` reporting. |
 | `scripts/test_red.py` | Red-Team Test Suite | 38-test `unittest` harness validating negative failure paths, `--dry-run` safety, `plan_guard.py` blocking, `status.py` phase detection, `RUNBOOK.md` & `AGENTS.md` contracts, markdown link integrity, and zero customer data leaks. |
 | `bootstrap.sh` | Bootstrap Helper | Optional interactive shell script that creates a `gemini-provisioner` Service Account in a bootstrap project, grants `roles/iam.serviceAccountTokenCreator` to the active `gcloud` user, and runs Stage 1 foundation provisioning. |
 | `RUNBOOK.md` | Operational Runbook | Stage-by-stage checklist with machine-checkable `Owner`, `Preconditions`, `Do`, `Done when`, and `If it fails` contracts. |
@@ -282,7 +309,7 @@ stateDiagram-v2
   [*] --> Phase0: make status
   Phase0: Stage 0 — preflight_inputs (Exit 1 on blocker)
   Phase1: Stage 1 — foundation_apply (Exit 0, Agent)
-  Phase2: Stage 2 — dwd_authorization / jira_authorization (Exit 2, Human Gate)
+  Phase2: Stage 2 — dwd_authorization / jira_authorization / confluence_authorization (Exit 2, Human Gate)
   Phase3: Stage 3 — connectors_and_engines_apply (Exit 0, Agent)
   Phase4Sub: Stage 4 — subscription_setup (Exit 2, Human Gate if UUIDs missing)
   Phase4Dist: Stage 4 — license_distribution (Exit 0, Agent)
@@ -290,7 +317,7 @@ stateDiagram-v2
 
   Phase0 --> Phase1: Tools + ADC + tfvars valid & no foreign projects in state
   Phase1 --> Phase2: project_ids output populated for all environments
-  Phase2 --> Phase3: enable_connectors=true (and valid Jira URI if Jira enabled)
+  Phase2 --> Phase3: enable_connectors=true (and valid URIs if Jira/Confluence enabled)
   Phase3 --> Phase4Sub: Engines, Assistants & Connectors in state (UUIDs missing)
   Phase3 --> Phase4Dist: Engines, Assistants & Connectors in state (UUIDs set)
   Phase4Sub --> Phase4Dist: license_config_id & subscription_id set in tfvars
@@ -308,8 +335,8 @@ stateDiagram-v2
    Google Workspace Admin Console's Domain-Wide Delegation screen requires the **21-digit numeric OAuth2 Client ID (`uniqueId`)** of the Discovery Engine Service Agent (`service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com`). Because Google-managed Service Agents are hidden from the standard Cloud Console IAM Service Accounts list, `make dwd-checklist` automatically calls:
    `POST https://serviceusage.googleapis.com/v1beta1/projects/<PROJECT_NUMBER>/services/discoveryengine.googleapis.com:generateServiceIdentity`
    and injects `"client_id": "<21-digit-uniqueId>"` into the checklist JSON for every environment.
-4. **Live Resolution of Atlassian `cloudId` (`make jira-checklist`):**
-   When `jira_config.instance_uri` is configured (e.g., `https://acme.atlassian.net`), running `make jira-checklist` queries `https://acme.atlassian.net/_edge/tenant_info` and automatically populates `"resolved_cloud_id"` and `"instance_id"` alongside the required OAuth callback URLs and scope lists.
+4. **Live Resolution of Atlassian `cloudId` (`make jira-checklist` & `make confluence-checklist`):**
+   When `jira_config.instance_uri` or `confluence_config.instance_uri` is configured (e.g., `https://acme.atlassian.net`), running `make jira-checklist` or `make confluence-checklist` queries `https://acme.atlassian.net/_edge/tenant_info` and automatically populates `"resolved_cloud_id"` and `"instance_id"` alongside the required OAuth callback URLs, scope lists, and entity mappings. (Confluence automatically inherits Jira's URI and cloudId in shared tenant environments).
 
 #### 2.2 Destructive Change Prevention with `scripts/plan_guard.py`
 
@@ -408,17 +435,18 @@ make test
    ```bash
    cp terraform.tfvars.example terraform.tfvars
    ```
-3. Populate your customer values in `terraform.tfvars`, keeping `enable_connectors = false` and `enable_jira_connector = false` for Stage 1:
+3. Populate your customer values in `terraform.tfvars`, keeping `enable_connectors = false`, `enable_jira_connector = false`, and `enable_confluence_connector = false` for Stage 1:
    ```yaml
-   customer_id           = "acme"
-   customer_name         = "Acme Corporation"
-   environments          = ["non-prod", "prod"]
-   company_domain        = "acme.com"
-   workspace_customer_id = "C09876543"
-   billing_account       = "012345-6789AB-CDEF01"
-   folder_id             = "123456789012"
-   enable_connectors     = false
-   enable_jira_connector = false
+   customer_id                  = "acme"
+   customer_name                = "Acme Corporation"
+   environments                 = ["non-prod", "prod"]
+   company_domain               = "acme.com"
+   workspace_customer_id        = "C09876543"
+   billing_account              = "012345-6789AB-CDEF01"
+   folder_id                    = "123456789012"
+   enable_connectors            = false
+   enable_jira_connector        = false
+   enable_confluence_connector  = false
    ```
 4. Initialize Terraform and verify Stage 0 readiness:
    ```bash
@@ -440,7 +468,7 @@ make test
    ```
    Confirm `make status` exits with code `2` and displays `Current Phase : Stage 2 — Dwd Authorization`.
 
-#### Stage 2 — Human Admin Authorization Gate (Workspace DWD & Jira)
+#### Stage 2 — Human Admin Authorization Gate (Workspace DWD, Jira & Confluence)
 
 1. **Authorize Google Workspace Domain-Wide Delegation:**
    ```bash
@@ -456,7 +484,14 @@ make test
      ```bash
      export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"<resolved_cloud_id>"}'
      ```
-3. **Unlock Stage 3:**
+3. **Configure Atlassian Confluence Authorization (If deploying Confluence):**
+   - In `terraform.tfvars`, set `enable_confluence_connector = true`. If using a dedicated Confluence instance, set `confluence_config.instance_uri = "https://<your-tenant>.atlassian.net"`; if sharing Jira's tenant, leave `instance_uri` empty to automatically inherit Jira's URI and credentials.
+   - Run `make confluence-checklist` to view the required Confluence OAuth scopes (`read:confluence-content.all`, `read:confluence-space.summary`, `read:confluence-user`, `offline_access`) and callback URLs.
+   - If using dedicated Confluence credentials, export:
+     ```bash
+     export TF_VAR_confluence_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"<resolved_cloud_id>"}'
+     ```
+4. **Unlock Stage 3:**
    - Set `enable_connectors = true` in `terraform.tfvars`.
    - Run `make status` and confirm it reports `Stage 3 — Connectors And Engines Apply` (`exit code 0`).
 
@@ -506,7 +541,7 @@ make test
 2. Complete Human UAT:
    - Add pilot test users to `{customer_id}-{env}-users@{company_domain}` in [Google Workspace Admin Console](https://admin.google.com).
    - Wait **1–3 minutes** for Cloud Identity group membership and User Store license auto-registration to propagate.
-   - Open the Vertex AI Search web app URL in an Incognito browser window as a pilot user and verify federated search across Gmail, Drive, Calendar, Chat, and Jira issues, as well as conversational answers from `default_assistant`.
+   - Open the Vertex AI Search web app URL in an Incognito browser window as a pilot user and verify federated search across Gmail, Drive, Calendar, Chat, Jira issues, and Confluence spaces/pages, as well as conversational answers from `default_assistant`.
 
 ### 4. Practitioner Troubleshooting & Day-2 Playbooks
 
@@ -517,4 +552,5 @@ make test
 | `google_discovery_engine_data_connector: PERMISSION_DENIED` or `unauthorized_client` | Workspace Domain-Wide Delegation OAuth token propagation delay (typically 5–15 minutes) or missing scope. | Wait 5 minutes and retry `make apply-connectors`. If it persists past 15 minutes, run `make dwd-checklist` and verify the 21-digit `client_id` and all 9 scopes in [admin.google.com/ac/owl/domainwidedelegation](https://admin.google.com/ac/owl/domainwidedelegation). |
 | `google_discovery_engine_assistant.default: Error 409: Already Exists` | Creating a search engine with `SEARCH_ADD_ON_LLM` automatically creates `default_assistant` on the backend. | Import the existing assistant into Terraform state:<br/>`terraform import 'google_discovery_engine_assistant.default["<env>"]' projects/<PROJECT_ID>/locations/global/collections/default_collection/engines/<ENGINE_ID>/assistants/default_assistant`<br/>Then re-run `make plan-connectors && make apply-connectors`. |
 | `verify.py` reports `[WARN] Connector (jira) ... Blocking: ALLOWLIST_STATIC_IP` | The target Jira Cloud instance enforces IP allowlisting and is blocking Discovery Engine egress IPs. | Set `jira_config.static_ip_enabled = true` in `terraform.tfvars`, run `make plan-connectors && make apply-connectors`, inspect `static_ip_addresses` in `make jira-checklist`, and allowlist those IPs in [admin.atlassian.com](https://admin.atlassian.com). |
+| `google_discovery_engine_data_connector: Confluence OAuth Error / Refresh Token Expired` | Confluence 3LO app refresh token expired, or missing `offline_access` scope. | Run `make confluence-checklist`, re-authorize the 3LO app in Atlassian Developer Console with `offline_access`, generate a new refresh token, and export via `TF_VAR_confluence_auth`. |
 | `Preflight assertion failed: Insufficient license seats in billing pool` | Total seats in `var.seat_allocations` exceed `availableLicenseCount` on the Cloud Billing Account. | Either reduce `seat_allocations` in `terraform.tfvars` (and re-run `make apply-connectors`), retract unused seats from older projects via `python3 scripts/allocate_licenses.py --retract --target-project <OLD_PROJECT_ID>`, or increase subscription seats in Cloud Console Billing. |

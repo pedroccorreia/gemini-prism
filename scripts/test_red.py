@@ -783,6 +783,249 @@ class TestStatusPhaseDetection(unittest.TestCase):
         self.assertEqual(status["handoff_template"], "jira")
         self.assertIn("OAuth 2.0", status["blockers"][0])
 
+    def test_status_phase_2_confluence_human_gate_when_instance_uri_placeholder(self):
+        """enable_confluence_connector=true with missing or placeholder instance_uri must trigger Stage 2 confluence gate (exit 2)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod", "prod"],
+            "enable_connectors": True,
+            "enable_confluence_connector": True,
+            "confluence_config": {
+                "instance_uri": "https://example.atlassian.net",
+                "data_source": "confluence"
+            }
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod", "prod": "testcust-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 2)
+        self.assertEqual(status["phase"], 2)
+        self.assertEqual(status["handoff_template"], "confluence")
+        self.assertIn("confluence", status["blockers"][0].lower())
+
+    def test_status_phase_2_confluence_only_gate_when_workspace_connectors_disabled(self):
+        """Confluence-only deployment (enable_connectors=false, enable_confluence_connector=true) with placeholder URI must trigger confluence gate, NOT DWD gate."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod", "prod"],
+            "enable_connectors": False,
+            "enable_confluence_connector": True,
+            "confluence_config": {
+                "instance_uri": "https://example.atlassian.net",
+                "data_source": "confluence"
+            }
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod", "prod": "testcust-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 2)
+        self.assertEqual(status["phase"], 2)
+        self.assertEqual(status["handoff_template"], "confluence")
+        self.assertIn("confluence", status["blockers"][0].lower())
+
+    def test_status_phase_3_ready_confluence_only_with_valid_uri(self):
+        """Confluence-only deployment (enable_connectors=false, enable_confluence_connector=true) with valid URI must advance to Phase 3 (exit 0)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod", "prod"],
+            "enable_connectors": False,
+            "enable_confluence_connector": True,
+            "confluence_config": {
+                "instance_uri": "https://custom-team.atlassian.net",
+                "data_source": "confluence"
+            }
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod", "prod": "testcust-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 0)
+        self.assertEqual(status["phase"], 3)
+        self.assertEqual(status["phase_name"], "connectors_and_engines_apply")
+
+    def test_status_phase_3_ready_confluence_inherits_jira_instance_uri(self):
+        """Confluence must inherit Jira's instance_uri when confluence_config.instance_uri is omitted and advance to Phase 3 (exit 0)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod", "prod"],
+            "enable_connectors": True,
+            "enable_jira_connector": True,
+            "enable_confluence_connector": True,
+            "jira_config": {
+                "instance_uri": "https://custom-team.atlassian.net",
+                "data_source": "jira"
+            },
+            "confluence_config": {}
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod", "prod": "testcust-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 0)
+        self.assertEqual(status["phase"], 3)
+        self.assertEqual(status["phase_name"], "connectors_and_engines_apply")
+
+    def test_status_phase_3_stays_when_confluence_connector_missing_from_state(self):
+        """When workspace connectors exist in state but confluence connector is missing, status must stay in Phase 3."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["prod"],
+            "enable_connectors": True,
+            "enable_confluence_connector": True,
+            "confluence_config": {
+                "instance_uri": "https://custom-team.atlassian.net",
+                "data_source": "confluence"
+            }
+        })
+        state_path = self._create_state(
+            project_ids={"prod": "testcust-prod"},
+            search_engines={"prod": "projects/123/locations/global/collections/default_collection/engines/engine-1"},
+            assistants={"prod": "projects/123/locations/global/collections/default_collection/engines/engine-1/assistants/default_assistant"}
+        )
+        with open(state_path, "r", encoding="utf-8") as f:
+            st = json.load(f)
+        st["outputs"]["data_connector_names"] = {
+            "value": {
+                "prod-google_mail": "projects/123/locations/global/collections/mail-col/dataConnector"
+            }
+        }
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 0)
+        self.assertEqual(status["phase"], 3)
+        self.assertEqual(status["phase_name"], "connectors_and_engines_apply")
+
+    def test_parse_tfvars_preserves_nested_confluence_config_types(self):
+        """parse_tfvars must parse booleans, lists, and strings inside confluence_config without clobbering."""
+        raw_tfvars = {
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "enable_confluence_connector": True,
+            "confluence_auth_type": "OAUTH",
+            "confluence_config": {
+                "instance_uri": "https://custom.atlassian.net",
+                "connector_modes": ["FEDERATED"],
+                "entities": ["space", "page", "blog", "attachment", "comment"],
+                "space_keys_include": ["ENG", "PROD"]
+            }
+        }
+        tfvars_path = self._create_tfvars(raw_tfvars)
+        parsed = status_module.parse_tfvars(tfvars_path)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.get("confluence_auth_type"), "OAUTH")
+        cfg = parsed.get("confluence_config", {})
+        self.assertEqual(cfg.get("instance_uri"), "https://custom.atlassian.net")
+        self.assertEqual(cfg.get("connector_modes"), ["FEDERATED"])
+        self.assertEqual(cfg.get("entities"), ["space", "page", "blog", "attachment", "comment"])
+        self.assertEqual(cfg.get("space_keys_include"), ["ENG", "PROD"])
+
+    def test_status_phase_2_confluence_rejects_data_ingestion_mode(self):
+        """enable_confluence_connector=true with DATA_INGESTION mode must trigger Stage 2 confluence gate (exit 2)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod"],
+            "enable_connectors": True,
+            "enable_confluence_connector": True,
+            "confluence_config": {
+                "instance_uri": "https://custom-team.atlassian.net",
+                "connector_modes": ["DATA_INGESTION"]
+            }
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 2)
+        self.assertEqual(status["phase"], 2)
+        self.assertEqual(status["handoff_template"], "confluence")
+        self.assertIn("FEDERATED", status["blockers"][0])
+
+    def test_status_phase_2_confluence_rejects_basic_auth_on_atlassian_cloud(self):
+        """enable_confluence_connector=true with BASIC_AUTH/API_TOKEN against *.atlassian.net must trigger Stage 2 confluence gate (exit 2)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod"],
+            "enable_connectors": True,
+            "enable_confluence_connector": True,
+            "confluence_auth_type": "API_TOKEN",
+            "confluence_config": {
+                "instance_uri": "https://custom-team.atlassian.net",
+                "connector_modes": ["FEDERATED"]
+            }
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 2)
+        self.assertEqual(status["phase"], 2)
+        self.assertEqual(status["handoff_template"], "confluence")
+        self.assertIn("OAuth 2.0", status["blockers"][0])
+
     def test_status_phase_3_ready_people_directory_only(self):
         """People Directory deployment (enable_connectors=false, enable_jira_connector=false, enable_people_directory_connector=true) must advance to Phase 3 (exit 0)."""
         tfvars_path = self._create_tfvars({
@@ -917,6 +1160,46 @@ class TestVerifyConnectors(unittest.TestCase):
         self.assertEqual(len(results), 1)
         component, status, details = results[0]
         self.assertIn("Connector (jira)", component)
+        self.assertEqual(status, "STATE_ACTIVE")
+        self.assertIn("Modes: FEDERATED", details)
+        self.assertIn("Entities: 5", details)
+        self.assertIn("Realtime: STATE_ACTIVE", details)
+        self.assertIn("ActionState: STATE_ACTIVE", details)
+
+    @patch("scripts.verify.make_request")
+    def test_verify_check_data_connectors_multi_entity_confluence(self, mock_make_request):
+        """check_data_connectors must inspect Confluence connector and surface entities count and connectorModes."""
+        def side_effect(url, **kwargs):
+            if url.endswith("/collections"):
+                return {
+                    "collections": [
+                        {"name": "projects/test-proj/locations/global/collections/confluence-federated-collection"}
+                    ]
+                }
+            elif url.endswith("/dataConnector"):
+                return {
+                    "name": "projects/test-proj/locations/global/collections/confluence-federated-collection/dataConnector",
+                    "dataSource": "confluence",
+                    "state": "STATE_ACTIVE",
+                    "realtimeState": "STATE_ACTIVE",
+                    "actionState": "STATE_ACTIVE",
+                    "connectorModes": ["FEDERATED"],
+                    "entities": [
+                        {"entityName": "space"},
+                        {"entityName": "page"},
+                        {"entityName": "blog"},
+                        {"entityName": "attachment"},
+                        {"entityName": "comment"}
+                    ]
+                }
+            return {}
+
+        mock_make_request.side_effect = side_effect
+
+        results = verify_module.check_data_connectors("test-proj", "global", "mock-token")
+        self.assertEqual(len(results), 1)
+        component, status, details = results[0]
+        self.assertIn("Connector (confluence)", component)
         self.assertEqual(status, "STATE_ACTIVE")
         self.assertIn("Modes: FEDERATED", details)
         self.assertIn("Entities: 5", details)
@@ -1166,6 +1449,21 @@ class TestTerraformDefaultsContract(unittest.TestCase):
         self.assertIn("people_directory_config", content)
         self.assertIn("google_people_directory", content)
         self.assertIn("people-directory-collection", content)
+
+    def test_tfvars_example_defaults_confluence(self):
+        """terraform.tfvars.example must define enable_confluence_connector defaulting to false."""
+        tfvars_example_path = os.path.join(REPO_ROOT, "terraform.tfvars.example")
+        self.assertTrue(os.path.exists(tfvars_example_path))
+
+        with open(tfvars_example_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        self.assertTrue(
+            re.search(r'^\s*enable_confluence_connector\s*=\s*false\b', content, re.MULTILINE),
+            "enable_confluence_connector must default to false in terraform.tfvars.example"
+        )
+        self.assertIn("confluence_config", content)
+        self.assertIn("confluence-federated-collection", content)
 
     def test_main_tf_dwd_scopes_include_directory_scopes(self):
         """main.tf dwd_scopes must include orgunit and customschema scopes for People Directory."""

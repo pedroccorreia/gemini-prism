@@ -55,6 +55,28 @@ jira_config = {
 # or
 # export TF_VAR_jira_auth='{"user_account":"user@example.com","api_token":"..."}'  # for Jira Server/Data Center BASIC_AUTH / API_TOKEN (v1)
 
+# Atlassian Confluence Connector (optional)
+enable_confluence_connector = false
+confluence_auth_type        = "OAUTH"
+
+confluence_config = {
+  instance_uri        = "" # e.g. "https://example.atlassian.net" (defaults to jira_config.instance_uri if omitted)
+  instance_id         = "" # Confluence Cloud ID UUID (defaults to jira_config.instance_id / TF_VAR_jira_auth if omitted)
+  data_source         = "confluence"
+  data_source_version = 4
+  collection_id       = "confluence-federated-collection"
+  connector_modes     = ["FEDERATED"]
+  refresh_interval    = "86400s"
+  entities            = ["space", "page", "blog", "attachment", "comment"]
+  static_ip_enabled   = false
+  enable_actions      = false
+  enabled_actions     = ["create_page", "update_page", "create_blogpost", "create_space", "upload_attachment", "download_attachment"]
+}
+
+# Note: Sensitive credentials can be passed via TF_VAR_confluence_auth environment variable, e.g.:
+# export TF_VAR_confluence_auth='{"client_id":"...","client_secret":"...","instance_id":"..."}'  # for Confluence Cloud OAUTH (v4, FEDERATED)
+# If Confluence shares the same Atlassian tenant and 3LO app as Jira, omitting TF_VAR_confluence_auth will automatically fall back to TF_VAR_jira_auth.
+
 # Google People & Org Directory Connector (optional)
 enable_people_directory_connector = false
 

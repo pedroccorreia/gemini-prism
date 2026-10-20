@@ -98,6 +98,48 @@ output "jira_checklist" {
   }
 }
 
+output "confluence_checklist" {
+  description = "Atlassian Confluence connector configuration and onboarding checklist per environment"
+  value = {
+    for k, v in local.environments : k => {
+      project_id                   = google_project.projects[k].project_id
+      instance_uri                 = try(coalesce(local.effective_confluence_instance_uri), "")
+      instance_id                  = nonsensitive(local.effective_confluence_instance_id)
+      auth_type                    = local.effective_confluence_auth_type
+      data_source_version          = local.effective_confluence_version
+      oauth_ingestion_callback_url = "https://vertexaisearch.cloud.google.com/console/oauth/confluence_oauth.html"
+      oauth_actions_callback_url   = "https://vertexaisearch.cloud.google.com/oauth-redirect"
+      developer_console_url        = "https://developer.atlassian.com/console/myapps/"
+      admin_console_url            = "https://admin.atlassian.com"
+      instance_id_help             = "Retrieve your Atlassian Cloud ID UUID via: curl -s https://<site>.atlassian.net/_edge/tenant_info | jq -r .cloudId"
+      oauth_scopes = coalesce(var.confluence_config.enable_actions, false) ? [
+        "search:confluence",
+        "read:page:confluence",
+        "read:space:confluence",
+        "read:comment:confluence",
+        "read:attachment:confluence",
+        "read:whiteboard:confluence",
+        "write:page:confluence",
+        "write:blogpost:confluence",
+        "write:space:confluence",
+        "write:attachment:confluence",
+        "offline_access"
+        ] : [
+        "search:confluence",
+        "read:page:confluence",
+        "read:space:confluence",
+        "read:comment:confluence",
+        "read:attachment:confluence",
+        "read:whiteboard:confluence",
+        "offline_access"
+      ]
+      entities            = coalesce(var.confluence_config.entities, ["space", "page", "blog", "attachment", "comment"])
+      static_ip_addresses = contains(keys(google_discovery_engine_data_connector.connectors), "${k}-confluence") ? google_discovery_engine_data_connector.connectors["${k}-confluence"].static_ip_addresses : []
+      action_instructions = contains(["OAUTH", "OAUTH_TWO_LEGGED"], local.effective_confluence_auth_type) ? "Create an Atlassian 3LO app at https://developer.atlassian.com/console/myapps/ with callback URL https://vertexaisearch.cloud.google.com/console/oauth/confluence_oauth.html (and https://vertexaisearch.cloud.google.com/oauth-redirect if Actions enabled), configure scopes, retrieve cloudId (instance_id) from https://<instance_uri>/_edge/tenant_info, and supply client_id, client_secret, and instance_id via TF_VAR_confluence_auth (or reuse TF_VAR_jira_auth)." : "Generate an Atlassian API token at https://id.atlassian.com/manage-profile/security/api-tokens and supply user_account and api_token via TF_VAR_confluence_auth (or TF_VAR_jira_auth)."
+    }
+  }
+}
+
 output "people_directory_checklist" {
   description = "Google People & Org Directory connector configuration and DWD checklist per environment"
   value = {

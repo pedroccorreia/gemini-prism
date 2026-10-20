@@ -38,23 +38,22 @@ enable_jira_connector = false
 jira_auth_type        = "OAUTH"
 
 jira_config = {
-  instance_uri                 = "https://example.atlassian.net"
-  instance_id                  = "" # Jira Cloud ID UUID (fetch via: curl -s https://<site>.atlassian.net/_edge/tenant_info | jq -r .cloudId)
-  data_source                  = "jira"
-  data_source_version          = 3
-  sync_mode                    = "PERIODIC"
-  refresh_interval             = "86400s"
-  incremental_refresh_interval = "10800s"
-  entities                     = ["project", "issue", "attachment", "comment", "worklog"]
-  static_ip_enabled            = false
-  enable_actions               = false
-  enabled_actions              = ["create_issue", "update_issue", "change_issue_status", "create_comment", "update_comment", "upload_attachment"]
+  instance_uri        = "https://example.atlassian.net"
+  instance_id         = "" # Jira Cloud ID UUID (fetch via: curl -s https://<site>.atlassian.net/_edge/tenant_info | jq -r .cloudId)
+  data_source         = "jira"
+  data_source_version = 3
+  connector_modes     = ["FEDERATED"]
+  refresh_interval    = "86400s"
+  entities            = ["project", "issue", "attachment", "comment", "worklog"]
+  static_ip_enabled   = false
+  enable_actions      = false
+  enabled_actions     = ["create_issue", "update_issue", "change_issue_status", "create_comment", "update_comment", "upload_attachment"]
 }
 
 # Note: Sensitive credentials should be passed via TF_VAR_jira_auth environment variable, e.g.:
-# export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"..."}'  # for OAUTH (v3)
+# export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","instance_id":"..."}'  # for Jira Cloud OAUTH (v3, FEDERATED)
 # or
-# export TF_VAR_jira_auth='{"user_account":"user@example.com","api_token":"..."}'  # for BASIC_AUTH / API_TOKEN (v1)
+# export TF_VAR_jira_auth='{"user_account":"user@example.com","api_token":"..."}'  # for Jira Server/Data Center BASIC_AUTH / API_TOKEN (v1)
 
 # Google People & Org Directory Connector (optional)
 enable_people_directory_connector = false

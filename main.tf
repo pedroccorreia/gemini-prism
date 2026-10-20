@@ -102,15 +102,25 @@ locals {
     "OAUTH_TWO_LEGGED" = "OAUTH_TWO_LEGGED"
   }[var.jira_auth_type]
 
-  effective_jira_instance_id = coalesce(
-    trimspace(try(var.jira_auth.instance_id, "")),
-    trimspace(try(var.jira_config.instance_id, "")),
-    ""
-  )
+  effective_jira_instance_id = try(coalesce(
+    trimspace(nonsensitive(try(var.jira_auth.instance_id, ""))),
+    trimspace(try(var.jira_config.instance_id, ""))
+  ), "")
 
-  # Default data source version based on auth type: 3 for OAuth, 1 for Basic Auth (API Token)
-  default_jira_version   = local.effective_jira_auth_type == "BASIC_AUTH" ? 1 : 3
-  effective_jira_version = coalesce(var.jira_config.data_source_version, local.default_jira_version)
+  # Default data source and version based on auth type:
+  # Discovery Engine 'jira' (Cloud) only accepts OAuth params (instance_uri, instance_id, client_id, client_secret),
+  # whereas API_TOKEN / BASIC_AUTH uses 'jira_server' with (api_token_type, username, api_token) and destination_configs.
+  effective_jira_data_source = local.effective_jira_auth_type == "BASIC_AUTH" ? "jira_server" : coalesce(var.jira_config.data_source, "jira")
+  default_jira_version       = local.effective_jira_auth_type == "BASIC_AUTH" ? 1 : 3
+  effective_jira_version     = coalesce(var.jira_config.data_source_version, local.default_jira_version)
+
+  jira_server_entity_map = {
+    "project"    = "projects"
+    "issue"      = "issues"
+    "attachment" = "attachments"
+    "comment"    = "comments"
+    "worklog"    = "worklogs"
+  }
 
   jira_entity_params = merge(
     length(coalesce(var.jira_config.project_keys_include, [])) > 0 ? {
@@ -131,34 +141,35 @@ locals {
     "${env_key}-jira" => {
       env_key             = env_key
       connector           = "jira"
-      data_source         = coalesce(var.jira_config.data_source, "jira")
+      data_source         = local.effective_jira_data_source
       data_source_version = local.effective_jira_version
       display_name        = "Atlassian Jira"
-      collection_id       = "jira-collection"
+      collection_id       = try(coalesce(trimspace(var.jira_config.collection_id)), "") != "" ? trimspace(var.jira_config.collection_id) : (contains(coalesce(var.jira_config.connector_modes, ["FEDERATED"]), "FEDERATED") ? "jira-federated-collection" : "jira-collection")
       project_id          = google_project.projects[env_key].project_id
       entities = [
         for e in coalesce(var.jira_config.entities, ["project", "issue", "attachment", "comment", "worklog"]) : {
-          entity_name = e
-          params      = (e == "project" && length(local.jira_entity_params) > 0) ? jsonencode(local.jira_entity_params) : null
+          entity_name = local.effective_jira_data_source == "jira_server" ? lookup(local.jira_server_entity_map, e, e) : e
+          params      = (contains(["project", "projects"], e) && length(local.jira_entity_params) > 0) ? jsonencode(local.jira_entity_params) : null
         }
       ]
-      connector_modes              = coalesce(var.jira_config.enable_actions, false) ? distinct(concat(coalesce(var.jira_config.connector_modes, ["DATA_INGESTION"]), ["ACTIONS"])) : coalesce(var.jira_config.connector_modes, ["DATA_INGESTION"])
-      sync_mode                    = var.jira_config.sync_mode
+      connector_modes              = coalesce(var.jira_config.enable_actions, false) ? distinct(concat(coalesce(var.jira_config.connector_modes, ["FEDERATED"]), ["ACTIONS"])) : coalesce(var.jira_config.connector_modes, ["FEDERATED"])
+      sync_mode                    = contains(coalesce(var.jira_config.connector_modes, ["FEDERATED"]), "FEDERATED") ? null : var.jira_config.sync_mode
       refresh_interval             = coalesce(var.jira_config.refresh_interval, "86400s")
-      incremental_refresh_interval = var.jira_config.incremental_refresh_interval
+      incremental_refresh_interval = (local.effective_jira_data_source == "jira_server" || contains(coalesce(var.jira_config.connector_modes, ["FEDERATED"]), "FEDERATED")) ? null : var.jira_config.incremental_refresh_interval
       static_ip_enabled            = var.jira_config.static_ip_enabled
       auto_run_disabled            = var.jira_config.auto_run_disabled
-      incremental_sync_disabled    = var.jira_config.incremental_sync_disabled
-      instance_uri                 = coalesce(var.jira_config.instance_uri, "")
-      params = merge(
+      incremental_sync_disabled    = (local.effective_jira_data_source == "jira_server" || contains(coalesce(var.jira_config.connector_modes, ["FEDERATED"]), "FEDERATED")) ? null : var.jira_config.incremental_sync_disabled
+      instance_uri                 = try(coalesce(var.jira_config.instance_uri), "")
+      params = local.effective_jira_data_source == "jira_server" ? merge(
+        { "api_token_type" = "BASIC_AUTH" },
+        var.jira_auth.user_account != "" ? { "username" = var.jira_auth.user_account } : {},
+        var.jira_auth.api_token != "" ? { "api_token" = var.jira_auth.api_token } : {},
+        coalesce(var.jira_config.extra_params, {})
+        ) : merge(
         var.jira_config.instance_uri != "" ? { "instance_uri" = var.jira_config.instance_uri } : {},
         local.effective_jira_instance_id != "" ? { "instance_id" = local.effective_jira_instance_id } : {},
-        { "auth_type" = local.effective_jira_auth_type },
         var.jira_auth.client_id != "" ? { "client_id" = var.jira_auth.client_id } : {},
         var.jira_auth.client_secret != "" ? { "client_secret" = var.jira_auth.client_secret } : {},
-        var.jira_auth.refresh_token != "" ? { "refresh_token" = var.jira_auth.refresh_token } : {},
-        var.jira_auth.user_account != "" ? { "user_account" = var.jira_auth.user_account } : {},
-        var.jira_auth.api_token != "" ? { "api_token" = var.jira_auth.api_token } : {},
         coalesce(var.jira_config.extra_params, {})
       )
       action_params = merge(
@@ -358,7 +369,7 @@ resource "google_discovery_engine_data_connector" "connectors" {
   }
 
   dynamic "destination_configs" {
-    for_each = (each.value.instance_uri != "" && (each.value.enable_actions || contains(each.value.connector_modes, "FEDERATED"))) ? [each.value.instance_uri] : []
+    for_each = (each.value.instance_uri != "" && (each.value.enable_actions || contains(each.value.connector_modes, "FEDERATED") || each.value.data_source == "jira_server")) ? [each.value.instance_uri] : []
     content {
       key = "url"
       destinations {
@@ -405,6 +416,7 @@ resource "google_discovery_engine_search_engine" "engines" {
     for conn_key, conn in local.environment_connectors : [
       for entity in google_discovery_engine_data_connector.connectors[conn_key].entities :
       basename(entity.data_store)
+      if try(trimspace(entity.data_store), "") != ""
     ]
     if conn.env_key == each.key
   ])

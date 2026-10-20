@@ -326,6 +326,29 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 "handoff_template": "jira",
                 "exit_code": 2
             }
+        connector_modes = jira_cfg.get("connector_modes")
+        if isinstance(connector_modes, list) and ("DATA_INGESTION" in connector_modes or "FEDERATED" not in connector_modes):
+            return {
+                "phase": 2,
+                "phase_name": "jira_authorization",
+                "owner": "human",
+                "blockers": ["Jira connector must use FEDERATED mode (connector_modes = [\"FEDERATED\"]) in terraform.tfvars"],
+                "next_action": "make jira-checklist",
+                "handoff_template": "jira",
+                "exit_code": 2
+            }
+        jira_auth_type = str(tfvars.get("jira_auth_type", "OAUTH")).strip().upper()
+        data_source = str(jira_cfg.get("data_source", "jira")).strip()
+        if ".atlassian.net" in instance_uri.lower() and (jira_auth_type in ("BASIC_AUTH", "API_TOKEN") or data_source == "jira_server"):
+            return {
+                "phase": 2,
+                "phase_name": "jira_authorization",
+                "owner": "human",
+                "blockers": ["Atlassian Jira Cloud (*.atlassian.net) requires OAuth 2.0 (jira_auth_type = \"OAUTH\" and data_source = \"jira\"), not BASIC_AUTH/API_TOKEN"],
+                "next_action": "make jira-checklist",
+                "handoff_template": "jira",
+                "exit_code": 2
+            }
 
     # 7. Stage 3 Connectors & Engines check
     search_engines_output = state_outputs.get("search_engine_names", {}).get("value", {})

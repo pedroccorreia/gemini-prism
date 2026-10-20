@@ -61,8 +61,8 @@ output "jira_checklist" {
   value = {
     for k, v in local.environments : k => {
       project_id                   = google_project.projects[k].project_id
-      instance_uri                 = coalesce(var.jira_config.instance_uri, "")
-      instance_id                  = local.effective_jira_instance_id
+      instance_uri                 = try(coalesce(var.jira_config.instance_uri), "")
+      instance_id                  = nonsensitive(local.effective_jira_instance_id)
       auth_type                    = local.effective_jira_auth_type
       data_source_version          = local.effective_jira_version
       oauth_ingestion_callback_url = "https://vertexaisearch.cloud.google.com/console/oauth/jira_oauth.html"
@@ -93,7 +93,7 @@ output "jira_checklist" {
       ]
       entities            = coalesce(var.jira_config.entities, ["project", "issue", "attachment", "comment", "worklog"])
       static_ip_addresses = contains(keys(google_discovery_engine_data_connector.connectors), "${k}-jira") ? google_discovery_engine_data_connector.connectors["${k}-jira"].static_ip_addresses : []
-      action_instructions = contains(["OAUTH", "OAUTH_TWO_LEGGED"], local.effective_jira_auth_type) ? "Create an Atlassian 3LO app at https://developer.atlassian.com/console/myapps/ with callback URLs https://vertexaisearch.cloud.google.com/console/oauth/jira_oauth.html (Ingestion) and https://vertexaisearch.cloud.google.com/oauth-redirect (Actions), configure scopes, retrieve cloudId from https://<instance_uri>/_edge/tenant_info, and supply client_id, client_secret, instance_id, and refresh_token via TF_VAR_jira_auth." : "Generate an Atlassian API token at https://id.atlassian.com/manage-profile/security/api-tokens and supply user_account and api_token via TF_VAR_jira_auth."
+      action_instructions = contains(["OAUTH", "OAUTH_TWO_LEGGED"], local.effective_jira_auth_type) ? "Create an Atlassian 3LO app at https://developer.atlassian.com/console/myapps/ with callback URL https://vertexaisearch.cloud.google.com/console/oauth/jira_oauth.html (and https://vertexaisearch.cloud.google.com/oauth-redirect if Actions enabled), configure scopes, retrieve cloudId (instance_id) from https://<instance_uri>/_edge/tenant_info, and supply client_id, client_secret, and instance_id via TF_VAR_jira_auth or terraform.tfvars." : "Generate an Atlassian API token at https://id.atlassian.com/manage-profile/security/api-tokens and supply user_account and api_token via TF_VAR_jira_auth."
     }
   }
 }

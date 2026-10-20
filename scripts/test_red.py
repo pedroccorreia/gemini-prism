@@ -724,6 +724,65 @@ class TestStatusPhaseDetection(unittest.TestCase):
         self.assertIs(cfg.get("enable_actions"), True)
         self.assertEqual(cfg.get("entities"), ["project", "issue", "comment"])
 
+    def test_status_phase_2_jira_rejects_data_ingestion_mode(self):
+        """enable_jira_connector=true with DATA_INGESTION mode must trigger Stage 2 jira gate (exit 2)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod"],
+            "enable_connectors": True,
+            "enable_jira_connector": True,
+            "jira_config": {
+                "instance_uri": "https://custom-team.atlassian.net",
+                "connector_modes": ["DATA_INGESTION"]
+            }
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 2)
+        self.assertEqual(status["phase"], 2)
+        self.assertEqual(status["handoff_template"], "jira")
+        self.assertIn("FEDERATED", status["blockers"][0])
+
+    def test_status_phase_2_jira_rejects_basic_auth_on_atlassian_cloud(self):
+        """enable_jira_connector=true with BASIC_AUTH/API_TOKEN against *.atlassian.net must trigger Stage 2 jira gate (exit 2)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod"],
+            "enable_connectors": True,
+            "enable_jira_connector": True,
+            "jira_auth_type": "API_TOKEN",
+            "jira_config": {
+                "instance_uri": "https://custom-team.atlassian.net",
+                "connector_modes": ["FEDERATED"]
+            }
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 2)
+        self.assertEqual(status["phase"], 2)
+        self.assertEqual(status["handoff_template"], "jira")
+        self.assertIn("OAuth 2.0", status["blockers"][0])
+
     def test_status_phase_3_ready_people_directory_only(self):
         """People Directory deployment (enable_connectors=false, enable_jira_connector=false, enable_people_directory_connector=true) must advance to Phase 3 (exit 0)."""
         tfvars_path = self._create_tfvars({
@@ -826,21 +885,22 @@ class TestVerifyConnectors(unittest.TestCase):
 
     @patch("scripts.verify.make_request")
     def test_verify_check_data_connectors_multi_entity_jira(self, mock_make_request):
-        """check_data_connectors must inspect multi-entity Jira connector and surface entities count."""
+        """check_data_connectors must inspect multi-entity Jira connector and surface entities count and connectorModes."""
         def side_effect(url, **kwargs):
             if url.endswith("/collections"):
                 return {
                     "collections": [
-                        {"name": "projects/test-proj/locations/global/collections/jira-collection"}
+                        {"name": "projects/test-proj/locations/global/collections/jira-federated-collection"}
                     ]
                 }
             elif url.endswith("/dataConnector"):
                 return {
-                    "name": "projects/test-proj/locations/global/collections/jira-collection/dataConnector",
+                    "name": "projects/test-proj/locations/global/collections/jira-federated-collection/dataConnector",
                     "dataSource": "jira",
                     "state": "STATE_ACTIVE",
                     "realtimeState": "STATE_ACTIVE",
                     "actionState": "STATE_ACTIVE",
+                    "connectorModes": ["FEDERATED"],
                     "entities": [
                         {"entityName": "project"},
                         {"entityName": "issue"},
@@ -858,6 +918,7 @@ class TestVerifyConnectors(unittest.TestCase):
         component, status, details = results[0]
         self.assertIn("Connector (jira)", component)
         self.assertEqual(status, "STATE_ACTIVE")
+        self.assertIn("Modes: FEDERATED", details)
         self.assertIn("Entities: 5", details)
         self.assertIn("Realtime: STATE_ACTIVE", details)
         self.assertIn("ActionState: STATE_ACTIVE", details)

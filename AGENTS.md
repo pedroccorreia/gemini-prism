@@ -11,12 +11,14 @@ Execute `make status --json`. Act on `next_action`. Reference the matching stage
   2. Use `make plan-<stage>` and `make apply-<stage>` (always applies guarded saved plans).
   3. Run `make licenses-dryrun` before distributing licenses.
   4. Stop at human gates (`status.py` exit code 2) and post the designated hand-off template.
+  5. Provision all data connectors (Workspace and third-party) exclusively in `FEDERATED` mode (`connector_modes = ["FEDERATED"]`).
 - **MUST NOT**:
   1. Run `terraform destroy` or apply any plan with deletions/replacements.
   2. Modify `.tf` files to bypass guards or remove `deletion_policy = "PREVENT"`.
   3. Flip `enable_connectors = true` without explicit human confirmation.
   4. Use `--skip-preflight` or switch GCP identities/credentials.
   5. Commit `terraform.tfvars`, `terraform.tfstate`, or `config/license_allocations.json`.
+  6. Provision `DATA_INGESTION` connectors or use `jira_server` / `BASIC_AUTH` against Jira Cloud (`*.atlassian.net`).
 
 ## Human Gates
 | Stage | Gate Reason | Signal for Resuming | Template |
@@ -82,6 +84,8 @@ Run `gcloud auth application-default login` and `gcloud auth login` with a custo
 | `google_cloud_identity_group: 403` | Missing Groups Admin permission | Post `permissions` template (requires Workspace Groups Admin) |
 | `connectors: PERMISSION_DENIED` | DWD token propagation latency | Wait 5 minutes and retry `make apply-connectors` |
 | `jira: 401/403/UNAUTHORIZED` | Invalid Jira credentials or scopes | Post `jira` template; verify `TF_VAR_jira_auth` |
+| `DataStore ... is being deleted` | Async GCP deletion after collection removal (up to 2h) | Use a distinct `collection_id` in `jira_config` |
+| `DeleteCollection: 500 / spanner: value not found` | Deleting a `FEDERATED` connector while `state == "CREATING"` | Wait ~5m for BAP connection to reach `ACTIVE` or `FAILED` before deleting |
 | `assistant: 409 ALREADY_EXISTS` | Engine auto-creates `default_assistant` | Import into state before `make apply-connectors` |
 | `missing license_config_id` | Console only displays Subscription ID | Run `python3 scripts/allocate_licenses.py --discover` |
 | `distributeLicenseConfig: Insufficient` | Billing pool out of seats | Increase seats on Billing Account |

@@ -150,9 +150,9 @@ stateDiagram-v2
 4. In Workspace Admin Console under **Security > Access and data control > API controls > Google Cloud Core Services**, allow access for the environment GCP project IDs if prompted.
 5. If Atlassian Jira is enabled (`enable_jira_connector = true`):
    - Run `make jira-checklist` to view the Jira instance URI, resolved `cloudId` (`instance_id`), required OAuth scopes, and redirect URLs.
-   - For OAuth 2.0 (3LO, v3): Register app in [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) with callback URLs `https://vertexaisearch.cloud.google.com/console/oauth/jira_oauth.html` (Ingestion) and `https://vertexaisearch.cloud.google.com/oauth-redirect` (Actions), configure scopes from `jira-checklist`, and export credentials via `export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"..."}'`.
-   - For API Token (Basic Auth, v1): Generate API token in Atlassian account security settings and export via `export TF_VAR_jira_auth='{"user_account":"...","api_token":"..."}'`.
-   - Update `jira_config.instance_uri` (and optionally `jira_config.instance_id`) in `terraform.tfvars`.
+   - Ensure `connector_modes = ["FEDERATED"]` is configured in `jira_config`.
+   - For Jira Cloud (`*.atlassian.net`, OAuth 2.0 3LO, v3): Register an OAuth 2.0 (3LO) app in [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) with callback URL `https://vertexaisearch.cloud.google.com/console/oauth/jira_oauth.html` (and `https://vertexaisearch.cloud.google.com/oauth-redirect` if Actions are enabled), configure the scopes from `jira-checklist`, and supply `client_id`, `client_secret`, and `instance_id` via `export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","instance_id":"..."}'` or `terraform.tfvars`.
+   - Update `jira_config.instance_uri` and `jira_config.instance_id` in `terraform.tfvars`.
 6. If Google People & Org Directory is enabled (`enable_people_directory_connector = true`):
    - Run `make people-checklist` to view directory configuration, target entities, and sync parameters.
    - People Directory reuses the DWD authorization above; ensure all Directory scopes (`user.readonly`, `orgunit.readonly`, `customschema.readonly`) are authorized.

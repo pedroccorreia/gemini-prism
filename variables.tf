@@ -162,9 +162,10 @@ variable "jira_config" {
   type = object({
     instance_uri                 = optional(string, "")
     instance_id                  = optional(string, "")
+    collection_id                = optional(string, "jira-federated-collection")
     data_source                  = optional(string, "jira")
     data_source_version          = optional(number, null)
-    connector_modes              = optional(list(string), ["DATA_INGESTION"])
+    connector_modes              = optional(list(string), ["FEDERATED"])
     sync_mode                    = optional(string, "PERIODIC")
     refresh_interval             = optional(string, "86400s")
     incremental_refresh_interval = optional(string, "10800s")
@@ -184,6 +185,11 @@ variable "jira_config" {
   validation {
     condition     = contains(["jira", "jira_server"], coalesce(var.jira_config.data_source, "jira"))
     error_message = "jira_config.data_source must be 'jira' or 'jira_server'."
+  }
+
+  validation {
+    condition     = contains(coalesce(var.jira_config.connector_modes, ["FEDERATED"]), "FEDERATED") && !contains(coalesce(var.jira_config.connector_modes, ["FEDERATED"]), "DATA_INGESTION")
+    error_message = "All connectors must use FEDERATED mode (connector_modes = [\"FEDERATED\"])."
   }
 }
 

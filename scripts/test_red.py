@@ -724,6 +724,102 @@ class TestStatusPhaseDetection(unittest.TestCase):
         self.assertIs(cfg.get("enable_actions"), True)
         self.assertEqual(cfg.get("entities"), ["project", "issue", "comment"])
 
+    def test_status_phase_3_ready_people_directory_only(self):
+        """People Directory deployment (enable_connectors=false, enable_jira_connector=false, enable_people_directory_connector=true) must advance to Phase 3 (exit 0)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod", "prod"],
+            "enable_connectors": False,
+            "enable_jira_connector": False,
+            "enable_people_directory_connector": True
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod", "prod": "testcust-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 0)
+        self.assertEqual(status["phase"], 3)
+        self.assertEqual(status["phase_name"], "connectors_and_engines_apply")
+
+    def test_status_phase_3_stays_when_people_directory_connector_missing_from_state(self):
+        """When search engines exist in state but people-directory connector is missing, status must stay in Phase 3."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["prod"],
+            "enable_connectors": False,
+            "enable_jira_connector": False,
+            "enable_people_directory_connector": True
+        })
+        state_path = self._create_state(
+            project_ids={"prod": "testcust-prod"},
+            search_engines={"prod": "projects/123/locations/global/collections/default_collection/engines/engine-1"},
+            assistants={"prod": "projects/123/locations/global/collections/default_collection/engines/engine-1/assistants/default_assistant"}
+        )
+        with open(state_path, "r", encoding="utf-8") as f:
+            st = json.load(f)
+        st["outputs"]["data_connector_names"] = {
+            "value": {
+                "prod-google_mail": "projects/123/locations/global/collections/mail-col/dataConnector"
+            }
+        }
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 0)
+        self.assertEqual(status["phase"], 3)
+        self.assertEqual(status["phase_name"], "connectors_and_engines_apply")
+
+    def test_parse_tfvars_preserves_nested_people_directory_config_types(self):
+        """parse_tfvars must parse booleans, lists, and strings inside people_directory_config without clobbering."""
+        raw_tfvars = {
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "enable_people_directory_connector": True,
+            "people_directory_config": {
+                "data_source": "google_people_directory",
+                "collection_id": "people-directory-collection",
+                "include_suspended_users": False,
+                "org_units_include": ["/Employees", "/Contractors"],
+                "custom_schemas_include": ["Skills"],
+                "refresh_interval": "86400s",
+                "sync_mode": "INCREMENTAL",
+                "entities": ["user_profile", "reporting_hierarchy"]
+            }
+        }
+        tfvars_path = self._create_tfvars(raw_tfvars)
+        parsed = status_module.parse_tfvars(tfvars_path)
+        self.assertIsNotNone(parsed)
+        self.assertIs(parsed.get("enable_people_directory_connector"), True)
+        cfg = parsed.get("people_directory_config", {})
+        self.assertEqual(cfg.get("data_source"), "google_people_directory")
+        self.assertEqual(cfg.get("collection_id"), "people-directory-collection")
+        self.assertIs(cfg.get("include_suspended_users"), False)
+        self.assertEqual(cfg.get("org_units_include"), ["/Employees", "/Contractors"])
+        self.assertEqual(cfg.get("custom_schemas_include"), ["Skills"])
+        self.assertEqual(cfg.get("sync_mode"), "INCREMENTAL")
+        self.assertEqual(cfg.get("entities"), ["user_profile", "reporting_hierarchy"])
+
 
 class TestVerifyConnectors(unittest.TestCase):
     """Test cases for verify.py multi-entity and third-party data connector inspection."""
@@ -849,6 +945,41 @@ class TestVerifyConnectors(unittest.TestCase):
         component, status, details = results[0]
         self.assertEqual(status, "ERROR")
 
+    @patch("scripts.verify.make_request")
+    def test_verify_check_data_connectors_people_directory(self, mock_make_request):
+        """check_data_connectors must inspect Google People Directory connector and surface entity counts."""
+        def side_effect(url, **kwargs):
+            if url.endswith("/collections"):
+                return {
+                    "collections": [
+                        {"name": "projects/test-proj/locations/global/collections/people-directory-collection"}
+                    ]
+                }
+            elif url.endswith("/dataConnector"):
+                return {
+                    "name": "projects/test-proj/locations/global/collections/people-directory-collection/dataConnector",
+                    "dataSource": "google_people_directory",
+                    "state": "STATE_ACTIVE",
+                    "entities": [
+                        {"entityName": "user_profile"},
+                        {"entityName": "job_architecture"},
+                        {"entityName": "reporting_hierarchy"},
+                        {"entityName": "location_contact"},
+                        {"entityName": "custom_attributes"}
+                    ]
+                }
+            return {}
+
+        mock_make_request.side_effect = side_effect
+
+        results = verify_module.check_data_connectors("test-proj", "global", "mock-token")
+        self.assertEqual(len(results), 1)
+        component, status, details = results[0]
+        self.assertIn("Connector (google_people_directory)", component)
+        self.assertEqual(status, "STATE_ACTIVE")
+        self.assertIn("Entities: 5", details)
+        self.assertIn("Collection: people-directory-collection", details)
+
 
 class TestDocumentationContracts(unittest.TestCase):
     """Test compliance with documentation and agent protocol contracts."""
@@ -958,6 +1089,38 @@ class TestTerraformDefaultsContract(unittest.TestCase):
         self.assertIn("org_id          = local.effective_org_id", content)
         self.assertIn("for_each = local.effective_sa_email != null ? local.environments : {}", content)
         self.assertIn("member   = \"serviceAccount:${local.effective_sa_email}\"", content)
+
+    def test_tfvars_example_defaults_people_directory(self):
+        """terraform.tfvars.example must define enable_people_directory_connector defaulting to false."""
+        tfvars_example_path = os.path.join(REPO_ROOT, "terraform.tfvars.example")
+        self.assertTrue(os.path.exists(tfvars_example_path))
+
+        with open(tfvars_example_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        self.assertTrue(
+            re.search(r'^\s*enable_people_directory_connector\s*=\s*false\b', content, re.MULTILINE),
+            "enable_people_directory_connector must default to false in terraform.tfvars.example"
+        )
+        self.assertIn("people_directory_config", content)
+        self.assertIn("google_people_directory", content)
+        self.assertIn("people-directory-collection", content)
+
+    def test_main_tf_dwd_scopes_include_directory_scopes(self):
+        """main.tf dwd_scopes must include orgunit and customschema scopes for People Directory."""
+        main_tf_path = os.path.join(REPO_ROOT, "main.tf")
+        with open(main_tf_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        required_scopes = [
+            "https://www.googleapis.com/auth/admin.directory.user.readonly",
+            "https://www.googleapis.com/auth/admin.directory.group.readonly",
+            "https://www.googleapis.com/auth/admin.directory.group.member.readonly",
+            "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
+            "https://www.googleapis.com/auth/admin.directory.customschema.readonly"
+        ]
+        for sc in required_scopes:
+            self.assertIn(sc, content, f"main.tf dwd_scopes missing required Directory scope: {sc}")
 
 
 class TestVerifyWaitParsing(unittest.TestCase):

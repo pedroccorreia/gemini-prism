@@ -189,6 +189,19 @@ The repository supports deploying the **Atlassian Jira Data Connector** (`jira-c
 | **Runtime Secret Environment Variable (`TF_VAR_jira_auth`)** | `export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"..."}'` | `export TF_VAR_jira_auth='{"user_account":"user@example.com","api_token":"..."}'` |
 | **Static IP Allowlisting (Optional)** | Set `jira_config.static_ip_enabled = true`; allowlist the egress IPs emitted in `terraform output jira_checklist` (`static_ip_addresses`) inside [admin.atlassian.com](https://admin.atlassian.com). | Same as Option A. |
 
+#### 3.5 Plane 5: Google People & Org Directory Requirements (When `enable_people_directory_connector = true`)
+
+The repository supports provisioning a dedicated **Google Cloud Identity / Workspace People & Org Directory** data connector (`people-directory-collection`) for ingesting organizational hierarchy, employee profiles, department taxonomy, job architecture, skills, and office locations into Gemini Enterprise.
+
+| Requirement Dimension | Specification & Guidance |
+| :--- | :--- |
+| **Authentication Architecture** | Reuses the existing **Discovery Engine Service Agent Domain-Wide Delegation (DWD)**. **Zero new credentials** or API tokens required. |
+| **Required Directory Scopes** | Automatically emitted in `make dwd-checklist` and `make people-checklist`:<br/>• `https://www.googleapis.com/auth/admin.directory.user.readonly`<br/>• `https://www.googleapis.com/auth/admin.directory.orgunit.readonly`<br/>• `https://www.googleapis.com/auth/admin.directory.customschema.readonly` |
+| **Connector Mode & Sync** | `connector_modes = ["DATA_INGESTION"]`, default sync mode `INCREMENTAL` with daily synchronization (`refresh_interval = "86400s"`). |
+| **Target Entities** | `user_profile`, `job_architecture`, `reporting_hierarchy`, `location_contact`, `custom_attributes` (configurable via `people_directory_config.entities`). |
+| **Scoping & Filters** | Filter ingestion by Organizational Units (`org_units_include`) or custom employee schemas (`custom_schemas_include`). Optional flag `include_suspended_users = false`. |
+| **Conversational Query Examples** | • *"Who manages the Cloud Architecture team in Sydney?"*<br/>• *"Show me the reporting chain for John Doe up to the VP level."*<br/>• *"Find Staff Software Engineers in London with Kubernetes and Go skills."*<br/>• *"Which department and cost center does Jane Smith belong to?"*<br/>• *"List all direct reports of Alex Taylor and their office locations."* |
+
 ### 4. Complete Configuration Input Reference (`variables.tf` & `terraform.tfvars`)
 
 Every deployment is driven by `terraform.tfvars` (copied from `terraform.tfvars.example` and excluded from Git via `.gitignore`).
@@ -220,6 +233,8 @@ Every deployment is driven by `terraform.tfvars` (copied from `terraform.tfvars.
 | `jira_auth_type` | `string` | `"OAUTH"` | Stage 3 | Validated to be `"OAUTH"`, `"OAUTH2"`, `"BASIC_AUTH"`, `"API_TOKEN"`, or `"OAUTH_TWO_LEGGED"`. |
 | `jira_auth` | `object` | `{}` | Stage 3 | `sensitive = true` credential map (`client_id`, `client_secret`, `refresh_token`, `instance_id`, `user_account`, `api_token`). Supply via `TF_VAR_jira_auth`. |
 | `jira_config` | `object` | `{}` | Stage 3 | Jira connector settings (`instance_uri`, `instance_id`, `data_source`, `data_source_version`, `connector_modes`, `sync_mode`, `refresh_interval`, `incremental_refresh_interval`, `entities`, `static_ip_enabled`, `enable_actions`, `enabled_actions`, `project_keys_include`, `project_keys_exclude`, `auto_run_disabled`, `incremental_sync_disabled`, `extra_params`). |
+| `enable_people_directory_connector` | `bool` | `false` | Stage 2 -> 3 | **Must be `false` in Stage 1.** Set to `true` after Workspace DWD with Directory scopes is authorized. |
+| `people_directory_config` | `object` | `{}` | Stage 3 | People Directory settings (`data_source`, `collection_id`, `display_name`, `include_suspended_users`, `org_units_include`, `custom_schemas_include`, `refresh_interval`, `sync_mode`, `entities`, `auto_run_disabled`). |
 
 ### 5. Pre-Deployment Readiness Checklist
 

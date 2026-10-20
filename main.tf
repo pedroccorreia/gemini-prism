@@ -173,13 +173,62 @@ locals {
     }
   } : {}
 
-  environment_connectors = merge(local.workspace_environment_connectors, local.jira_environment_connectors)
+  # Entity parameters for Google People & Org Directory
+  people_directory_entity_params = merge(
+    var.people_directory_config.include_suspended_users ? { "include_suspended_users" = "true" } : {},
+    length(coalesce(var.people_directory_config.org_units_include, [])) > 0 ? {
+      "org_units" = var.people_directory_config.org_units_include
+    } : {},
+    length(coalesce(var.people_directory_config.custom_schemas_include, [])) > 0 ? {
+      "custom_schemas" = var.people_directory_config.custom_schemas_include
+    } : {}
+  )
+
+  # Google Cloud Identity / Workspace People & Org Directory connector per environment (when enabled)
+  people_directory_environment_connectors = var.enable_people_directory_connector ? {
+    for env_key, env_val in local.environments :
+    "${env_key}-people-directory" => {
+      env_key             = env_key
+      connector           = "people_directory"
+      data_source         = coalesce(var.people_directory_config.data_source, "google_people_directory")
+      data_source_version = null
+      display_name        = coalesce(var.people_directory_config.display_name, "Google People Directory")
+      collection_id       = coalesce(var.people_directory_config.collection_id, "people-directory-collection")
+      project_id          = google_project.projects[env_key].project_id
+      entities = [
+        for e in coalesce(var.people_directory_config.entities, ["user_profile", "job_architecture", "reporting_hierarchy", "location_contact", "custom_attributes"]) : {
+          entity_name = e
+          params      = length(local.people_directory_entity_params) > 0 ? jsonencode(local.people_directory_entity_params) : null
+        }
+      ]
+      connector_modes              = ["DATA_INGESTION"]
+      sync_mode                    = coalesce(var.people_directory_config.sync_mode, "INCREMENTAL")
+      refresh_interval             = coalesce(var.people_directory_config.refresh_interval, "86400s")
+      incremental_refresh_interval = null
+      static_ip_enabled            = false
+      auto_run_disabled            = coalesce(var.people_directory_config.auto_run_disabled, false)
+      incremental_sync_disabled    = false
+      instance_uri                 = ""
+      params                       = {}
+      action_params                = {}
+      enable_actions               = false
+      enabled_actions              = []
+    }
+  } : {}
+
+  environment_connectors = merge(
+    local.workspace_environment_connectors,
+    local.jira_environment_connectors,
+    local.people_directory_environment_connectors
+  )
 
   # Domain-Wide Delegation OAuth scopes required for Workspace connectors & user directory
   dwd_scopes = [
     "https://www.googleapis.com/auth/admin.directory.user.readonly",
     "https://www.googleapis.com/auth/admin.directory.group.readonly",
     "https://www.googleapis.com/auth/admin.directory.group.member.readonly",
+    "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
+    "https://www.googleapis.com/auth/admin.directory.customschema.readonly",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
@@ -343,7 +392,7 @@ resource "google_discovery_engine_data_connector" "connectors" {
 
 # 6. Provision Unified Gemini Enterprise Search App per Customer Environment Project
 resource "google_discovery_engine_search_engine" "engines" {
-  for_each          = (var.enable_connectors || var.enable_jira_connector) ? local.environments : {}
+  for_each          = (var.enable_connectors || var.enable_jira_connector || var.enable_people_directory_connector) ? local.environments : {}
   project           = google_project.projects[each.key].project_id
   location          = var.location
   collection_id     = "default_collection"
@@ -372,7 +421,7 @@ resource "google_discovery_engine_search_engine" "engines" {
 
 # 7. Grant End-User Search Access Scoped to the Engine
 resource "google_discovery_engine_search_engine_iam_member" "users" {
-  for_each      = (var.enable_connectors || var.enable_jira_connector) ? local.environments : {}
+  for_each      = (var.enable_connectors || var.enable_jira_connector || var.enable_people_directory_connector) ? local.environments : {}
   project       = google_project.projects[each.key].project_id
   location      = var.location
   collection_id = google_discovery_engine_search_engine.engines[each.key].collection_id
@@ -383,7 +432,7 @@ resource "google_discovery_engine_search_engine_iam_member" "users" {
 
 # 8. Provision Governed Gemini Enterprise Assistant
 resource "google_discovery_engine_assistant" "default" {
-  for_each           = (var.enable_connectors || var.enable_jira_connector) ? local.environments : {}
+  for_each           = (var.enable_connectors || var.enable_jira_connector || var.enable_people_directory_connector) ? local.environments : {}
   project            = google_project.projects[each.key].project_id
   location           = var.location
   collection_id      = google_discovery_engine_search_engine.engines[each.key].collection_id

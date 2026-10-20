@@ -97,3 +97,25 @@ output "jira_checklist" {
     }
   }
 }
+
+output "people_directory_checklist" {
+  description = "Google People & Org Directory connector configuration and DWD checklist per environment"
+  value = {
+    for k, v in local.environments : k => {
+      project_id          = google_project.projects[k].project_id
+      collection_id       = coalesce(var.people_directory_config.collection_id, "people-directory-collection")
+      data_source         = coalesce(var.people_directory_config.data_source, "google_people_directory")
+      sync_mode           = coalesce(var.people_directory_config.sync_mode, "INCREMENTAL")
+      refresh_interval    = coalesce(var.people_directory_config.refresh_interval, "86400s")
+      entities            = coalesce(var.people_directory_config.entities, ["user_profile", "job_architecture", "reporting_hierarchy", "location_contact", "custom_attributes"])
+      service_agent_email = "service-${google_project.projects[k].number}@gcp-sa-discoveryengine.iam.gserviceaccount.com"
+      admin_console_url   = "https://admin.google.com/ac/owl/domainwidedelegation"
+      required_scopes = [
+        "https://www.googleapis.com/auth/admin.directory.user.readonly",
+        "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
+        "https://www.googleapis.com/auth/admin.directory.customschema.readonly"
+      ]
+      action_instructions = "Ensure Domain-Wide Delegation in Google Workspace Admin Console includes the required Directory API scopes for the service agent email."
+    }
+  }
+}

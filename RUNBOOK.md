@@ -144,7 +144,7 @@ stateDiagram-v2
    - **Client ID**: The 21-digit numeric `client_id` (`uniqueId`) or `service_agent_email` from `make dwd-checklist`.
    - **OAuth Scopes**: Copy and paste the comma-separated scope string from `dwd-checklist`:
      ```
-     https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly,https://www.googleapis.com/auth/chat.memberships.readonly
+     https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly,https://www.googleapis.com/auth/admin.directory.orgunit.readonly,https://www.googleapis.com/auth/admin.directory.customschema.readonly,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly,https://www.googleapis.com/auth/chat.memberships.readonly
      ```
    - Click **Authorize**.
 4. In Workspace Admin Console under **Security > Access and data control > API controls > Google Cloud Core Services**, allow access for the environment GCP project IDs if prompted.
@@ -153,27 +153,32 @@ stateDiagram-v2
    - For OAuth 2.0 (3LO, v3): Register app in [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) with callback URLs `https://vertexaisearch.cloud.google.com/console/oauth/jira_oauth.html` (Ingestion) and `https://vertexaisearch.cloud.google.com/oauth-redirect` (Actions), configure scopes from `jira-checklist`, and export credentials via `export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"..."}'`.
    - For API Token (Basic Auth, v1): Generate API token in Atlassian account security settings and export via `export TF_VAR_jira_auth='{"user_account":"...","api_token":"..."}'`.
    - Update `jira_config.instance_uri` (and optionally `jira_config.instance_id`) in `terraform.tfvars`.
-6. Signal completion by updating `terraform.tfvars`:
+6. If Google People & Org Directory is enabled (`enable_people_directory_connector = true`):
+   - Run `make people-checklist` to view directory configuration, target entities, and sync parameters.
+   - People Directory reuses the DWD authorization above; ensure all Directory scopes (`user.readonly`, `orgunit.readonly`, `customschema.readonly`) are authorized.
+7. Signal completion by updating `terraform.tfvars`:
    ```hcl
    enable_connectors = true
+   # and/or enable_people_directory_connector = true
    ```
 
 **Done when:**
-- `enable_connectors = true` is set in `terraform.tfvars`.
+- `enable_connectors = true` or `enable_people_directory_connector = true` is set in `terraform.tfvars`.
 - If `enable_jira_connector = true`, `jira_config.instance_uri` is non-empty and non-placeholder.
 - `make status` returns exit code 0 (`phase: 3, phase_name: "connectors_and_engines_apply"`).
 
 **If it fails:**
 - DWD authorization rejected by Admin Console: Verify executing human is a Workspace Super Admin and use the 21-digit numeric `client_id` from `make dwd-checklist`.
-- Incomplete scopes: Ensure all 9 required scopes are pasted without trailing spaces.
+- Incomplete scopes: Ensure all 11 required scopes are pasted without trailing spaces.
 - Jira OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make jira-checklist`, and credentials in `TF_VAR_jira_auth` have access to the target Jira Cloud instance.
 
 **Checklist:**
 - [ ] Retrieved 21-digit numeric `client_id`, service agent email, and scope CSV via `make dwd-checklist`
-- [ ] Authorized DWD client for each environment in Google Workspace Admin Console
+- [ ] Authorized DWD client for each environment in Google Workspace Admin Console (including Directory scopes)
 - [ ] Allowed GCP projects under Google Cloud Core Services
 - [ ] Configured Jira OAuth app / API token via `make jira-checklist` (if Jira enabled)
-- [ ] Flipped `enable_connectors = true` in `terraform.tfvars`
+- [ ] Inspected People Directory settings via `make people-checklist` (if People Directory enabled)
+- [ ] Flipped `enable_connectors = true` and/or `enable_people_directory_connector = true` in `terraform.tfvars`
 
 ---
 

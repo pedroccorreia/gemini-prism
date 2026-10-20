@@ -1,4 +1,4 @@
-.PHONY: status plan-foundation apply-foundation dwd-checklist jira-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify test help
+.PHONY: status plan-foundation apply-foundation dwd-checklist jira-checklist people-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify test help
 
 WAIT ?= 15m
 
@@ -14,6 +14,7 @@ help:
 	@echo "  apply-foundation  - Apply Stage 1 Foundation plan (0 deletes/replaces)"
 	@echo "  dwd-checklist     - Print Google Workspace Domain-Wide Delegation authorization checklist"
 	@echo "  jira-checklist    - Print Atlassian Jira connector onboarding checklist"
+	@echo "  people-checklist  - Print Google People Directory connector onboarding checklist"
 	@echo "  plan-connectors   - Generate Stage 3 Connectors & Engines plan with plan guard"
 	@echo "  apply-connectors  - Apply Stage 3 Connectors & Engines plan"
 	@echo "  licenses-dryrun   - Dry-run license distribution preflight assertions"
@@ -27,7 +28,7 @@ status:
 
 plan-foundation:
 	@mkdir -p .plans
-	terraform plan -input=false -var="enable_connectors=false" -var="enable_jira_connector=false" -out=.plans/foundation.tfplan
+	terraform plan -input=false -var="enable_connectors=false" -var="enable_jira_connector=false" -var="enable_people_directory_connector=false" -out=.plans/foundation.tfplan
 	python3 scripts/plan_guard.py .plans/foundation.tfplan
 
 apply-foundation:
@@ -39,6 +40,9 @@ dwd-checklist:
 
 jira-checklist:
 	@python3 scripts/status.py --jira-checklist
+
+people-checklist:
+	@python3 scripts/status.py --people-directory-checklist
 
 plan-connectors:
 	@mkdir -p .plans

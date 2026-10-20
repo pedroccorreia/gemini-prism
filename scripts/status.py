@@ -298,9 +298,10 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
     # 6. Stage 2 DWD / Jira Human Gate check
     enable_connectors = tfvars.get("enable_connectors", False)
     enable_jira_connector = tfvars.get("enable_jira_connector", False)
+    enable_people_directory_connector = tfvars.get("enable_people_directory_connector", False)
 
     # If neither connector is enabled, block on Workspace DWD (default flow)
-    if not enable_connectors and not enable_jira_connector:
+    if not enable_connectors and not enable_jira_connector and not enable_people_directory_connector:
         return {
             "phase": 2,
             "phase_name": PHASES[2],
@@ -348,12 +349,31 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 jira_connectors_present = False
                 break
 
+    # Check People Directory connector existence in state if enabled
+    people_directory_connectors_present = True
+    if enable_people_directory_connector:
+        connector_keys = set()
+        if state and "_error" not in state:
+            for res in state.get("resources", []):
+                if res.get("type") == "google_discovery_engine_data_connector":
+                    for inst in res.get("instances", []):
+                        if inst.get("index_key"):
+                            connector_keys.add(inst.get("index_key"))
+            data_connectors_output = state_outputs.get("data_connector_names", {}).get("value", {})
+            if isinstance(data_connectors_output, dict):
+                connector_keys.update(data_connectors_output.keys())
+        for env in environments:
+            if f"{env}-people-directory" not in connector_keys:
+                people_directory_connectors_present = False
+                break
+
     stage3_complete = (
         bool(search_engines_output) and
         all(env in search_engines_output for env in environments) and
         bool(assistants_output) and
         all(env in assistants_output for env in environments) and
-        jira_connectors_present
+        jira_connectors_present and
+        people_directory_connectors_present
     )
 
     if not stage3_complete:
@@ -532,11 +552,42 @@ def print_jira_checklist():
     print(json.dumps(data, indent=2))
 
 
+def print_people_directory_checklist():
+    """Fetch terraform people_directory_checklist output and output JSON."""
+    try:
+        raw = subprocess.check_output(["terraform", "output", "-json", "people_directory_checklist"], text=True, stderr=subprocess.DEVNULL)
+        data = json.loads(raw)
+    except Exception:
+        tfvars = parse_tfvars(os.path.join(os.getcwd(), "terraform.tfvars")) or {}
+        people_cfg = tfvars.get("people_directory_config", {})
+        envs = tfvars.get("environments", ["non-prod", "prod"])
+        data = {
+            env: {
+                "project_id": f"{tfvars.get('project_id_prefix', '')}{tfvars.get('customer_id', 'customer')}-{env}",
+                "collection_id": people_cfg.get("collection_id", "people-directory-collection"),
+                "data_source": people_cfg.get("data_source", "google_people_directory"),
+                "sync_mode": people_cfg.get("sync_mode", "INCREMENTAL"),
+                "refresh_interval": people_cfg.get("refresh_interval", "86400s"),
+                "entities": people_cfg.get("entities", ["user_profile", "job_architecture", "reporting_hierarchy", "location_contact", "custom_attributes"]),
+                "admin_console_url": "https://admin.google.com/ac/owl/domainwidedelegation",
+                "required_scopes": [
+                    "https://www.googleapis.com/auth/admin.directory.user.readonly",
+                    "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
+                    "https://www.googleapis.com/auth/admin.directory.customschema.readonly"
+                ],
+                "action_instructions": "Ensure Domain-Wide Delegation in Google Workspace Admin Console includes the required Directory API scopes for the service agent email."
+            }
+            for env in envs
+        }
+    print(json.dumps(data, indent=2))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Check deployment status and determine next automated/human step.")
     parser.add_argument("--json", action="store_true", help="Output status in JSON format for agent consumption.")
     parser.add_argument("--dwd-checklist", action="store_true", help="Print DWD checklist enriched with 21-digit numeric Client ID.")
     parser.add_argument("--jira-checklist", action="store_true", help="Print Jira checklist enriched with discovered Atlassian cloudId.")
+    parser.add_argument("--people-directory-checklist", action="store_true", help="Print Google People Directory connector onboarding checklist.")
     parser.add_argument("--deep", action="store_true", help="Perform deep drift check via terraform plan.")
     parser.add_argument("--workdir", default=".", help="Root directory of the Terraform repository.")
     parser.add_argument("--state-file", help="Path to terraform.tfstate override (for test fixtures).")
@@ -552,6 +603,10 @@ def main():
 
     if args.jira_checklist:
         print_jira_checklist()
+        sys.exit(0)
+
+    if args.people_directory_checklist:
+        print_people_directory_checklist()
         sys.exit(0)
 
     status_data = determine_status(

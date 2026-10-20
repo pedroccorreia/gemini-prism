@@ -12,10 +12,10 @@ Prism unifies disparate enterprise knowledge systems into **Google Gemini Enterp
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Current** | **Google Workspace** | Google Workspace | Gmail, Calendar, Drive, Chat | Domain-Wide Delegation (DWD) | `v1.0.0` | 🟢 **GA (Shipped)** |
 | **Current** | **Atlassian Jira** | Jira Cloud / Data Center | Projects, Issues, Comments, Attachments, Worklogs | OAuth 2.0 (3LO) / API Token | `v1.1.0` | 🟢 **GA (Shipped)** |
-| **P1 (High)** | **Atlassian Confluence** | Confluence Cloud / DC | Spaces, Pages, Blogposts, Attachments, Comments | OAuth 2.0 (3LO) / API Token | `v1.2.0` | 📋 **Accepted / Backlog** |
-| **P2 (Med-High)** | **Slack Enterprise** | Slack Enterprise Grid | Channels, Messages, Threads, Canvases, Files | Bot User OAuth (`xoxb-`) | `v1.3.0` | 📋 **Accepted / Backlog** |
-| **P3 (Medium)** | **HubSpot CRM** | HubSpot Cloud | Contacts, Companies, Deals, Tickets, Engagements | Private App Token / OAuth | `v1.4.0` | 📋 **Accepted / Backlog** |
-| **P4 (Low-Med)** | **People Directory** | Google Cloud Identity / Workspace | User Profiles, Org Chart, Manager Hierarchy, Offices | Discovery Engine DWD SA | `v1.5.0` | 📋 **Accepted / Backlog** |
+| **Current** | **People Directory** | Google Cloud Identity / Workspace | User Profiles, Org Chart, Manager Hierarchy, Offices | Discovery Engine DWD SA | `v1.2.0` | 🟢 **GA (Shipped)** |
+| **P1 (High)** | **Atlassian Confluence** | Confluence Cloud / DC | Spaces, Pages, Blogposts, Attachments, Comments | OAuth 2.0 (3LO) / API Token | `v1.3.0` | 📋 **Accepted / Backlog** |
+| **P2 (Med-High)** | **Slack Enterprise** | Slack Enterprise Grid | Channels, Messages, Threads, Canvases, Files | Bot User OAuth (`xoxb-`) | `v1.4.0` | 📋 **Accepted / Backlog** |
+| **P3 (Medium)** | **HubSpot CRM** | HubSpot Cloud | Contacts, Companies, Deals, Tickets, Engagements | Private App Token / OAuth | `v1.5.0` | 📋 **Accepted / Backlog** |
 
 ---
 
@@ -39,11 +39,12 @@ Prism unifies disparate enterprise knowledge systems into **Google Gemini Enterp
 - **Security:** Ingestion of Private App tokens via GCP Secret Manager.
 - **Collection ID:** `hubspot-collection`
 
-### 4. [P4] Google People & Org Directory Connector
+### 4. Google People & Org Directory Connector (Shipped GA)
 - **Repository Issue:** [.github/issues/04_people_directory_connector.md](../.github/issues/04_people_directory_connector.md)
 - **Objective:** Provide conversational org-chart navigation, manager hierarchies, and talent discovery.
 - **Advantage:** Requires **zero new credentials**; reuses the existing Discovery Engine DWD client ID and Directory Admin scopes.
 - **Collection ID:** `people-directory-collection`
+- **Status:** 🟢 **Shipped (v1.2.0)** — Configurable via `enable_people_directory_connector` and `people_directory_config`.
 
 ---
 

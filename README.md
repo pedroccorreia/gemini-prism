@@ -13,13 +13,13 @@
 
 # Prism — Gemini Enterprise Customer Provisioning IaC
 
-> **Refracting enterprise knowledge—Google Workspace, Atlassian Jira, and Cloud Identity—into one governed Gemini Enterprise assistant.**
+> **Refracting enterprise knowledge—Google Workspace, Atlassian Jira, Atlassian Confluence, and Cloud Identity—into one governed Gemini Enterprise assistant.**
 
 **Prism** is a production-grade Terraform Infrastructure as Code (IaC) and autonomous agent orchestration engine that provisions, connects, and licenses **Google Gemini Enterprise (Vertex AI Search)** across isolated customer environments (`non-prod`, `prod`, `dev`, `pilot`).
 
 ### Optical Convergence Architecture
-Just as an optical prism unifies disparate wavelengths into a single beam, Prism converges five distinct enterprise data streams through five guarded deployment stages:
-- **5 Enterprise Input Rays:** Gmail, Google Calendar, Google Drive, Google Chat, and Atlassian Jira.
+Just as an optical prism unifies disparate wavelengths into a single beam, Prism converges enterprise data streams through five guarded deployment stages:
+- **6 Enterprise Input Rays:** Gmail, Google Calendar, Google Drive, Google Chat, Atlassian Jira, and Atlassian Confluence.
 - **The Prism (IaC Engine):** Staged Terraform foundation, Domain-Wide Delegation (DWD), `GSUITE` location ACLs, and non-destructive plan guards (`plan_guard.py`).
 - **The Gemini Apex Spark:** Unified Intranet Search Engine and Governed Enterprise Assistant (`google_discovery_engine_assistant`).
 
@@ -31,9 +31,10 @@ It deploys:
 - **User Store with Auto-Registration** (`google_discovery_engine_user_store`).
 - **Federated Workspace Connectors** (`google_mail`, `google_calendar`, `google_drive`, `google_chat`).
 - **Atlassian Jira Data Connector** with multi-entity data stores (`project`, `issue`, `attachment`, `comment`, `worklog`) and optional Action/BAP integration.
+- **Atlassian Confluence Federated Data Connector** (`confluence-federated-collection`) with real-time federated spaces, pages, blogs, attachments, and comments, with automatic Jira shared tenant fallback.
 - **Unified Intranet Search App & Governed Assistant** (`google_discovery_engine_search_engine`, `google_discovery_engine_assistant`).
 - **Automated Seat Distribution & Verification** tooling via `Makefile`.
-- **Planned Enterprise Connectors Roadmap:** Prioritized pipeline tracking [Confluence (P1), Slack (P2), HubSpot (P3), and People Directory (P4)](docs/CONNECTORS_ROADMAP.md).
+- **Enterprise Connectors Roadmap:** Prioritized pipeline tracking [Slack (P2), HubSpot (P3), and People Directory (P4)](docs/CONNECTORS_ROADMAP.md).
 
 ---
 
@@ -45,6 +46,7 @@ flowchart TD
     WSGroup["Cloud Identity Group<br/><code>{customer}-{env}-users@{domain}</code>"]
     WSAdmin["Google Workspace Admin Console<br/>(DWD API Client Authorization)"]
     JiraTenant["Atlassian Jira Cloud<br/>(OAuth 2.0 3LO / API Token)"]
+    ConfTenant["Atlassian Confluence<br/>(OAuth 2.0 3LO / DC Basic)"]
   end
 
   subgraph GCPFoundation["GCP Customer Environment Project ({customer}-{env})"]
@@ -54,21 +56,24 @@ flowchart TD
     UStore["User Store: default_user_store<br/>(Auto-Register: ON)"]
   end
 
-  subgraph ConnectorsAndEngine["Workspace & Jira Connectors & Search Engine"]
+  subgraph ConnectorsAndEngine["Workspace, Jira & Confluence Connectors & Search Engine"]
     Conn1["Gmail Connector"]
     Conn2["Calendar Connector"]
     Conn3["Drive Connector"]
     Conn4["Chat Connector"]
     ConnJira["Jira Connector<br/>(project, issue, comment, attachment, worklog)"]
+    ConnConf["Confluence Connector<br/>(space, page, blog, attachment, comment)"]
     Engine["Search App: {customer}-{env}-search-engine"]
     Assist["Governed Assistant: default_assistant"]
   end
 
   WSAdmin -.->|Authorizes Scopes| SAgent
   JiraTenant -.->|OAuth 2.0 / Token| ConnJira
+  ConfTenant -.->|OAuth 2.0 / Shared Jira| ConnConf
   SAgent --> Conn1 & Conn2 & Conn3 & Conn4
   Conn1 & Conn2 & Conn3 & Conn4 --> Engine
   ConnJira --> Engine
+  ConnConf --> Engine
   Engine --> Assist
   WSGroup -->|roles/discoveryengine.user| Engine
 ```
@@ -203,11 +208,12 @@ make configure         # Stage 0: Interactive connector onboarding wizard
 make check-inputs      # Stage 0: Audit inputs and missing variables
 make plan-foundation   # Stage 1: Generate foundation plan with safety guard
 make apply-foundation  # Stage 1: Apply foundation infrastructure
-make dwd-checklist     # Stage 2: Display Workspace DWD authorization details
-make jira-checklist    # Stage 2: Display Atlassian Jira authorization details
-make people-checklist  # Stage 2: Display People Directory authorization details
-make enable-connectors # Stage 2: Validate prerequisites and enable planned connectors
-make plan-connectors   # Stage 3: Generate connectors plan with safety guard
+make dwd-checklist        # Stage 2: Display Workspace DWD authorization details
+make jira-checklist       # Stage 2: Display Atlassian Jira authorization details
+make confluence-checklist # Stage 2: Display Atlassian Confluence authorization details
+make people-checklist     # Stage 2: Display People Directory authorization details
+make enable-connectors    # Stage 2: Validate prerequisites and enable planned connectors
+make plan-connectors      # Stage 3: Generate connectors plan with safety guard
 make apply-connectors  # Stage 3: Apply connectors, engines & assistants
 make licenses-dryrun   # Stage 4: Verify seat distribution preflight assertions
 make licenses          # Stage 4: Distribute seats to environment projects

@@ -63,6 +63,19 @@ CONNECTOR_OPTIONS = [
         "enable_flag": "enable_jira_connector",
     },
     {
+        "value": "confluence",
+        "label": "Atlassian Confluence Cloud",
+        "description": "Atlassian Confluence spaces, pages, and blogposts federated search connector",
+        "docs_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud",
+        "help_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud",
+        "doc_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud",
+        "admin_url": "https://developer.atlassian.com/console/myapps/",
+        "lookup_command": "curl -s https://<site>.atlassian.net/_edge/tenant_info | jq -r .cloudId",
+        "required_roles": ["Atlassian Site Administrator"],
+        "default": False,
+        "enable_flag": "enable_confluence_connector",
+    },
+    {
         "value": "people_directory",
         "label": "Google Workspace People Directory",
         "description": "User profile and directory search connector",
@@ -288,9 +301,10 @@ def determine_stage(workdir=".", state_path=None, tfvars_path=None):
     # Foundation is complete -> Stage 2 or beyond
     enable_connectors = tfvars.get("enable_connectors", False)
     enable_jira = tfvars.get("enable_jira_connector", False)
+    enable_confluence = tfvars.get("enable_confluence_connector", False)
     enable_directory = tfvars.get("enable_people_directory_connector", False)
 
-    if not enable_connectors and not enable_jira and not enable_directory:
+    if not enable_connectors and not enable_jira and not enable_confluence and not enable_directory:
         return 2
 
     # Check Jira if enabled
@@ -457,6 +471,7 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
     if stage == 0 and not allow_enable:
         updates["enable_connectors"] = False
         updates["enable_jira_connector"] = False
+        updates["enable_confluence_connector"] = False
         updates["enable_people_directory_connector"] = False
 
     # 1. Update planned_connectors
@@ -471,7 +486,7 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
             content += f"\n{line}\n"
 
     # 2. Update enable_* flags
-    for flag in ["enable_connectors", "enable_jira_connector", "enable_people_directory_connector"]:
+    for flag in ["enable_connectors", "enable_jira_connector", "enable_confluence_connector", "enable_people_directory_connector"]:
         if flag in updates:
             val_bool = "true" if updates[flag] else "false"
             spacing = "    " if flag == "enable_connectors" else " "
@@ -505,6 +520,7 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
         "planned_connectors",
         "enable_connectors",
         "enable_jira_connector",
+        "enable_confluence_connector",
         "enable_people_directory_connector",
         "jira_instance_uri",
         "jira_instance_id",
@@ -883,6 +899,15 @@ def enable_connectors(workdir=".", state_path=None, tfvars_path=None, json_outpu
         if is_placeholder(tfvars.get("company_domain")) or is_placeholder(tfvars.get("workspace_customer_id")):
             errors.append("People Directory prerequisite missing: Workspace domain and customer ID must be configured.")
 
+    if "confluence" in planned:
+        confluence_cfg = tfvars.get("confluence_config", {})
+        confluence_uri = str(confluence_cfg.get("instance_uri", "")).strip()
+        jira_cfg = tfvars.get("jira_config", {})
+        jira_uri = str(jira_cfg.get("instance_uri", "")).strip()
+        effective_uri = confluence_uri or jira_uri
+        if not effective_uri or is_placeholder(effective_uri):
+            errors.append("Confluence prerequisite missing: confluence_config.instance_uri (or fallback jira_config.instance_uri) must be configured.")
+
     if errors:
         if json_output:
             print(json.dumps({"status": "prerequisites_failed", "errors": errors}, indent=2))
@@ -896,6 +921,7 @@ def enable_connectors(workdir=".", state_path=None, tfvars_path=None, json_outpu
     updates = {
         "enable_connectors": ("workspace" in planned),
         "enable_jira_connector": ("jira" in planned),
+        "enable_confluence_connector": ("confluence" in planned),
         "enable_people_directory_connector": ("people_directory" in planned),
     }
     update_tfvars(actual_tfvars, updates, stage=stage, allow_enable=True, workdir=workdir)
@@ -911,6 +937,7 @@ def enable_connectors(workdir=".", state_path=None, tfvars_path=None, json_outpu
         print("[SUCCESS] Planned connectors enabled in terraform.tfvars:")
         print(f"  • enable_connectors                = {str(updates['enable_connectors']).lower()}")
         print(f"  • enable_jira_connector            = {str(updates['enable_jira_connector']).lower()}")
+        print(f"  • enable_confluence_connector      = {str(updates['enable_confluence_connector']).lower()}")
         print(f"  • enable_people_directory_connector = {str(updates['enable_people_directory_connector']).lower()}")
         print("=" * 80)
         print("Next step: Run 'make plan-connectors && make apply-connectors' to provision resources.")
@@ -1068,6 +1095,7 @@ def main():
     print(f"  • planned_connectors               = {json.dumps(chosen_connectors)}")
     print(f"  • enable_connectors                = false (Stage 0 safety)")
     print(f"  • enable_jira_connector            = false (Stage 0 safety)")
+    print(f"  • enable_confluence_connector      = false (Stage 0 safety)")
     print(f"  • enable_people_directory_connector = false (Stage 0 safety)")
     print("=" * 80)
 

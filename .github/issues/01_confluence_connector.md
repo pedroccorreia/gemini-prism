@@ -67,13 +67,14 @@ variable "confluence_auth" {
 ```
 
 ### Discovery Engine Integration Details
-- **Collection ID:** `confluence-collection`
-- **Data Source Name:** `confluence`
+- **Collection ID:** `confluence-federated-collection`
+- **Data Source Name:** `confluence` (Cloud v4) / `confluence_server` (Data Center v1)
+- **Connector Mode:** `FEDERATED` (real-time live queries under end-user identity)
 - **Data Store Schema:** Document-level ACLs preserving Confluence space and page view restrictions to mirror user permissions.
 
 ### Acceptance Criteria
-- [ ] Variables defined in `variables.tf` and exported in `outputs.tf`.
-- [ ] `main.tf` dynamic locals merge Confluence into `environment_connectors`.
-- [ ] Automated validation in `scripts/plan_guard.py` ensuring Confluence secrets are non-empty when enabled.
-- [ ] Documentation updated in `RUNBOOK.md` and `PRACTITIONERS_GUIDE.md` with Confluence OAuth consent instructions.
-- [ ] Successful dry-run `terraform plan` on `dev` and `non-prod` environments.
+- [x] Variables defined in `variables.tf` and exported in `outputs.tf` (`confluence_checklist`).
+- [x] `main.tf` dynamic locals merge Confluence into `environment_connectors` with automatic Jira tenant fallback.
+- [x] Automated validation in `scripts/status.py` and `scripts/verify.py` ensuring Confluence federated mode and OAuth configuration.
+- [x] Documentation updated in `RUNBOOK.md` and `PRACTITIONERS_GUIDE.md` with Confluence OAuth consent and checklist instructions.
+- [x] Automated test coverage in `scripts/test_red.py` and successful dry-run validation.

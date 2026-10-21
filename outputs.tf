@@ -98,6 +98,48 @@ output "jira_checklist" {
   }
 }
 
+output "confluence_checklist" {
+  description = "Atlassian Confluence connector configuration and onboarding checklist per environment"
+  value = {
+    for k, v in local.environments : k => {
+      project_id                   = google_project.projects[k].project_id
+      instance_uri                 = try(coalesce(local.effective_confluence_instance_uri), "")
+      instance_id                  = nonsensitive(local.effective_confluence_instance_id)
+      auth_type                    = local.effective_confluence_auth_type
+      data_source_version          = local.effective_confluence_version
+      oauth_ingestion_callback_url = "https://vertexaisearch.cloud.google.com/console/oauth/confluence_oauth.html"
+      oauth_actions_callback_url   = "https://vertexaisearch.cloud.google.com/oauth-redirect"
+      developer_console_url        = "https://developer.atlassian.com/console/myapps/"
+      admin_console_url            = "https://admin.atlassian.com"
+      instance_id_help             = "Retrieve your Atlassian Cloud ID UUID via: curl -s https://<site>.atlassian.net/_edge/tenant_info | jq -r .cloudId"
+      oauth_scopes = coalesce(var.confluence_config.enable_actions, false) ? [
+        "search:confluence",
+        "read:page:confluence",
+        "read:space:confluence",
+        "read:comment:confluence",
+        "read:attachment:confluence",
+        "read:whiteboard:confluence",
+        "write:page:confluence",
+        "write:blogpost:confluence",
+        "write:space:confluence",
+        "write:attachment:confluence",
+        "offline_access"
+        ] : [
+        "search:confluence",
+        "read:page:confluence",
+        "read:space:confluence",
+        "read:comment:confluence",
+        "read:attachment:confluence",
+        "read:whiteboard:confluence",
+        "offline_access"
+      ]
+      entities            = coalesce(var.confluence_config.entities, ["space", "page", "blog", "attachment", "comment"])
+      static_ip_addresses = contains(keys(google_discovery_engine_data_connector.connectors), "${k}-confluence") ? google_discovery_engine_data_connector.connectors["${k}-confluence"].static_ip_addresses : []
+      action_instructions = contains(["OAUTH", "OAUTH_TWO_LEGGED"], local.effective_confluence_auth_type) ? "Create an Atlassian 3LO app at https://developer.atlassian.com/console/myapps/ with callback URL https://vertexaisearch.cloud.google.com/console/oauth/confluence_oauth.html (and https://vertexaisearch.cloud.google.com/oauth-redirect if Actions enabled), configure scopes, retrieve cloudId (instance_id) from https://<instance_uri>/_edge/tenant_info, and supply client_id, client_secret, and instance_id via TF_VAR_confluence_auth (or reuse TF_VAR_jira_auth)." : "Generate an Atlassian API token at https://id.atlassian.com/manage-profile/security/api-tokens and supply user_account and api_token via TF_VAR_confluence_auth (or TF_VAR_jira_auth)."
+    }
+  }
+}
+
 output "people_directory_checklist" {
   description = "Google People & Org Directory connector configuration and DWD checklist per environment"
   value = {
@@ -105,15 +147,16 @@ output "people_directory_checklist" {
       project_id          = google_project.projects[k].project_id
       collection_id       = coalesce(var.people_directory_config.collection_id, "people-directory-collection")
       data_source         = coalesce(var.people_directory_config.data_source, "google_people_directory")
-      sync_mode           = coalesce(var.people_directory_config.sync_mode, "INCREMENTAL")
+      sync_mode           = (coalesce(var.people_directory_config.sync_mode, "PERIODIC") == "INCREMENTAL") ? "PERIODIC" : coalesce(var.people_directory_config.sync_mode, "PERIODIC")
       refresh_interval    = coalesce(var.people_directory_config.refresh_interval, "86400s")
-      entities            = coalesce(var.people_directory_config.entities, ["user_profile", "job_architecture", "reporting_hierarchy", "location_contact", "custom_attributes"])
+      entities            = coalesce(var.people_directory_config.entities, ["users"])
       service_agent_email = "service-${google_project.projects[k].number}@gcp-sa-discoveryengine.iam.gserviceaccount.com"
       admin_console_url   = "https://admin.google.com/ac/owl/domainwidedelegation"
       required_scopes = [
         "https://www.googleapis.com/auth/admin.directory.user.readonly",
         "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
-        "https://www.googleapis.com/auth/admin.directory.customschema.readonly"
+        "https://www.googleapis.com/auth/admin.directory.customschema.readonly",
+        "https://www.googleapis.com/auth/directory.readonly"
       ]
       action_instructions = "Ensure Domain-Wide Delegation in Google Workspace Admin Console includes the required Directory API scopes for the service agent email."
     }

@@ -78,14 +78,14 @@ variable "sa_email" {
 
 variable "planned_connectors" {
   type        = list(string)
-  description = "List of enterprise connectors planned for deployment (workspace, jira, people_directory)"
+  description = "List of enterprise connectors planned for deployment (workspace, jira, confluence, people_directory)"
   default     = ["workspace"]
 
   validation {
     condition = alltrue([
-      for c in var.planned_connectors : contains(["workspace", "jira", "people_directory"], c)
+      for c in var.planned_connectors : contains(["workspace", "jira", "confluence", "people_directory"], c)
     ])
-    error_message = "Each element of planned_connectors must be one of: 'workspace', 'jira', 'people_directory'."
+    error_message = "Each element of planned_connectors must be one of: 'workspace', 'jira', 'confluence', 'people_directory'."
   }
 }
 
@@ -214,22 +214,89 @@ variable "enable_people_directory_connector" {
 
 variable "people_directory_config" {
   type = object({
-    data_source             = optional(string, "google_people_directory")
+    data_source             = optional(string, "native_cloud_identity")
     collection_id           = optional(string, "people-directory-collection")
     display_name            = optional(string, "Google People Directory")
     include_suspended_users = optional(bool, false)
     org_units_include       = optional(list(string), []) # Target specific OUs (e.g. /Employees)
     custom_schemas_include  = optional(list(string), []) # Include custom employee attributes
     refresh_interval        = optional(string, "86400s") # Daily synchronization
-    sync_mode               = optional(string, "INCREMENTAL")
-    entities                = optional(list(string), ["user_profile", "job_architecture", "reporting_hierarchy", "location_contact", "custom_attributes"])
+    sync_mode               = optional(string, "PERIODIC")
+    entities                = optional(list(string), ["users"])
     auto_run_disabled       = optional(bool, false)
   })
   description = "Configuration parameters for Google Cloud Identity / Workspace People & Org Directory data connector"
   default     = {}
 
   validation {
-    condition     = contains(["google_people_directory", "people_directory"], coalesce(var.people_directory_config.data_source, "google_people_directory"))
-    error_message = "people_directory_config.data_source must be 'google_people_directory' or 'people_directory'."
+    condition     = contains(["native_cloud_identity", "google_people_directory", "people_directory"], coalesce(var.people_directory_config.data_source, "native_cloud_identity"))
+    error_message = "people_directory_config.data_source must be 'native_cloud_identity', 'google_people_directory', or 'people_directory'."
   }
 }
+
+variable "enable_confluence_connector" {
+  type        = bool
+  description = "Whether to provision the Atlassian Confluence Discovery Engine data connector. Set to true after Confluence OAuth/API credentials are configured."
+  default     = false
+}
+
+variable "confluence_auth_type" {
+  type        = string
+  description = "Authentication method for Confluence connector: 'OAUTH' (or 'OAUTH2'), 'BASIC_AUTH' (or 'API_TOKEN'), or 'OAUTH_TWO_LEGGED'"
+  default     = "OAUTH"
+
+  validation {
+    condition     = contains(["OAUTH", "OAUTH2", "BASIC_AUTH", "API_TOKEN", "OAUTH_TWO_LEGGED"], var.confluence_auth_type)
+    error_message = "confluence_auth_type must be one of 'OAUTH', 'OAUTH2', 'BASIC_AUTH', 'API_TOKEN', or 'OAUTH_TWO_LEGGED'."
+  }
+}
+
+variable "confluence_auth" {
+  type = object({
+    user_account  = optional(string, "")
+    api_token     = optional(string, "")
+    client_id     = optional(string, "")
+    client_secret = optional(string, "")
+    instance_id   = optional(string, "")
+    refresh_token = optional(string, "")
+  })
+  description = "Sensitive authentication credentials for Confluence connector (pass via TF_VAR_confluence_auth environment variable; falls back to TF_VAR_jira_auth when omitted)"
+  default     = {}
+  sensitive   = true
+}
+
+variable "confluence_config" {
+  type = object({
+    instance_uri                 = optional(string, "")
+    instance_id                  = optional(string, "")
+    collection_id                = optional(string, "confluence-federated-collection")
+    data_source                  = optional(string, "confluence")
+    data_source_version          = optional(number, null)
+    connector_modes              = optional(list(string), ["FEDERATED"])
+    sync_mode                    = optional(string, "PERIODIC")
+    refresh_interval             = optional(string, "86400s")
+    incremental_refresh_interval = optional(string, "3600s")
+    entities                     = optional(list(string), ["space", "page", "blog", "attachment", "comment"])
+    static_ip_enabled            = optional(bool, false)
+    enable_actions               = optional(bool, false)
+    enabled_actions              = optional(list(string), ["create_page", "update_page", "create_blogpost", "create_space", "upload_attachment", "download_attachment"])
+    space_keys_include           = optional(list(string), [])
+    space_keys_exclude           = optional(list(string), [])
+    auto_run_disabled            = optional(bool, false)
+    incremental_sync_disabled    = optional(bool, false)
+    extra_params                 = optional(map(string), {})
+  })
+  description = "Configuration for the Atlassian Confluence data connector"
+  default     = {}
+
+  validation {
+    condition     = contains(["confluence", "confluence_server"], coalesce(var.confluence_config.data_source, "confluence"))
+    error_message = "confluence_config.data_source must be 'confluence' or 'confluence_server'."
+  }
+
+  validation {
+    condition     = contains(coalesce(var.confluence_config.connector_modes, ["FEDERATED"]), "FEDERATED") && !contains(coalesce(var.confluence_config.connector_modes, ["FEDERATED"]), "DATA_INGESTION")
+    error_message = "All connectors must use FEDERATED mode (connector_modes = [\"FEDERATED\"])."
+  }
+}
+

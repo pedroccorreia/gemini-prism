@@ -1,6 +1,6 @@
 # Prism — Gemini Enterprise Provisioning Runbook
 
-This runbook defines the authoritative, staged procedure for **Prism**: provisioning Gemini Enterprise (Vertex AI Search) with Google Workspace and Atlassian Jira connectors across customer environments.
+This runbook defines the authoritative, staged procedure for **Prism**: provisioning Gemini Enterprise (Vertex AI Search) with Google Workspace, Atlassian Jira, and Atlassian Confluence connectors across customer environments.
 
 It serves both **human operators** and **autonomous AI agents** ([AGENTS.md](AGENTS.md)). Every stage contains machine-checkable preconditions, execution targets via `make`, success criteria, failure handling, and checklist items.
 
@@ -153,42 +153,52 @@ stateDiagram-v2
    - Ensure `connector_modes = ["FEDERATED"]` is configured in `jira_config`.
    - For Jira Cloud (`*.atlassian.net`, OAuth 2.0 3LO, v3): Register an OAuth 2.0 (3LO) app in [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) with callback URL `https://vertexaisearch.cloud.google.com/console/oauth/jira_oauth.html` (and `https://vertexaisearch.cloud.google.com/oauth-redirect` if Actions are enabled), configure the scopes from `jira-checklist`, and supply `client_id`, `client_secret`, and `instance_id` via `export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","instance_id":"..."}'` or `terraform.tfvars`.
    - Update `jira_config.instance_uri` and `jira_config.instance_id` in `terraform.tfvars`.
-6. If Google People & Org Directory is enabled (`enable_people_directory_connector = true`):
+6. If Atlassian Confluence is enabled (`enable_confluence_connector = true`):
+   - Run `make confluence-checklist` to view the Confluence instance URI, resolved `cloudId` (`instance_id`), required OAuth scopes, and redirect URLs.
+   - Ensure `connector_modes = ["FEDERATED"]` is configured in `confluence_config`.
+   - For Confluence Cloud (`*.atlassian.net`, OAuth 2.0 3LO, v4): Register/configure an OAuth 2.0 (3LO) app in [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) with callback URL `https://vertexaisearch.cloud.google.com/console/oauth/confluence_oauth.html` (and `https://vertexaisearch.cloud.google.com/oauth-redirect` if Actions are enabled), configure the scopes from `confluence-checklist`, and supply `client_id`, `client_secret`, and `instance_id` via `export TF_VAR_confluence_auth='{"client_id":"...","client_secret":"...","instance_id":"..."}'` or `terraform.tfvars`. (If Confluence shares the same Atlassian tenant and 3LO app as Jira, `TF_VAR_confluence_auth` and instance URI automatically fall back to `jira_auth` and `jira_config`.)
+   - Update `confluence_config.instance_uri` and `confluence_config.instance_id` in `terraform.tfvars` (or omit to inherit from Jira).
+7. If Google People & Org Directory is enabled (`enable_people_directory_connector = true`):
    - Run `make people-checklist` to view directory configuration, target entities, and sync parameters.
    - People Directory reuses the DWD authorization above; ensure all Directory scopes (`user.readonly`, `orgunit.readonly`, `customschema.readonly`) are authorized.
-7. Signal completion by updating `terraform.tfvars`:
+8. Signal completion by updating `terraform.tfvars`:
    ```hcl
    enable_connectors = true
+   # and/or enable_jira_connector = true
+   # and/or enable_confluence_connector = true
    # and/or enable_people_directory_connector = true
    ```
 
 **Done when:**
-- `enable_connectors = true` or `enable_people_directory_connector = true` is set in `terraform.tfvars`.
+- `enable_connectors = true`, `enable_jira_connector = true`, `enable_confluence_connector = true`, or `enable_people_directory_connector = true` is set in `terraform.tfvars`.
 - If `enable_jira_connector = true`, `jira_config.instance_uri` is non-empty and non-placeholder.
+- If `enable_confluence_connector = true`, `confluence_config.instance_uri` (or inherited `jira_config.instance_uri`) is non-empty and non-placeholder.
 - `make status` returns exit code 0 (`phase: 3, phase_name: "connectors_and_engines_apply"`).
 
 **If it fails:**
 - DWD authorization rejected by Admin Console: Verify executing human is a Workspace Super Admin and use the 21-digit numeric `client_id` from `make dwd-checklist`.
 - Incomplete scopes: Ensure all 11 required scopes are pasted without trailing spaces.
 - Jira OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make jira-checklist`, and credentials in `TF_VAR_jira_auth` have access to the target Jira Cloud instance.
+- Confluence OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make confluence-checklist`, and credentials in `TF_VAR_confluence_auth` (or fallback `TF_VAR_jira_auth`) have access to the target Confluence Cloud instance.
 
 **Checklist:**
 - [ ] Retrieved 21-digit numeric `client_id`, service agent email, and scope CSV via `make dwd-checklist`
 - [ ] Authorized DWD client for each environment in Google Workspace Admin Console (including Directory scopes)
 - [ ] Allowed GCP projects under Google Cloud Core Services
 - [ ] Configured Jira OAuth app / API token via `make jira-checklist` (if Jira enabled)
+- [ ] Configured Confluence OAuth app / API token via `make confluence-checklist` (if Confluence enabled)
 - [ ] Inspected People Directory settings via `make people-checklist` (if People Directory enabled)
-- [ ] Flipped `enable_connectors = true` and/or `enable_people_directory_connector = true` in `terraform.tfvars`
+- [ ] Flipped `enable_connectors = true`, `enable_jira_connector = true`, `enable_confluence_connector = true`, and/or `enable_people_directory_connector = true` in `terraform.tfvars`
 
 ---
 
-## Stage 3 — Workspace & Jira Connectors, Search Engines & Assistants
+## Stage 3 — Workspace, Jira & Confluence Connectors, Search Engines & Assistants
 
 **Owner:** Agent (after Stage 2 Human Gate)
 
 **Preconditions (machine-checkable):**
 - `make status` returns exit code 0 (`phase: 3, phase_name: "connectors_and_engines_apply"`).
-- `enable_connectors` is `true` in `terraform.tfvars` (or `enable_jira_connector` with configured URI).
+- `enable_connectors` is `true` in `terraform.tfvars` (or `enable_jira_connector` / `enable_confluence_connector` with configured URI).
 
 **Do:**
 1. Generate and guard the connectors plan:
@@ -203,13 +213,13 @@ stateDiagram-v2
 **Done when:**
 - `terraform output -json search_engine_names` contains all configured environments.
 - `terraform output -json assistant_names` contains all configured environments.
-- All provisioned connectors (Workspace and/or Jira) exist in state.
+- All provisioned connectors (Workspace, Jira, and/or Confluence) exist in state.
 - Re-plan produces zero diff.
 
 **If it fails:**
 - Connector creation fails with `PERMISSION_DENIED` or `unauthorized_client`: Domain-Wide Delegation OAuth tokens can take up to 5–15 minutes to propagate. Wait 5 minutes and retry `make apply-connectors`.
-- Jira connector fails with authentication/network error: Verify Jira instance URI is reachable, allowlist static IPs if enabled, and verify `TF_VAR_jira_auth`.
-- If permission failure persists after 15 minutes: Escalate with the **dwd** or **jira** template to re-verify Client ID and scope entries.
+- Jira or Confluence connector fails with authentication/network error: Verify instance URI is reachable, allowlist static IPs if enabled, and verify `TF_VAR_jira_auth` / `TF_VAR_confluence_auth`.
+- If permission failure persists after 15 minutes: Escalate with the **dwd**, **jira**, or **confluence** template to re-verify Client ID and scope entries.
 - `google_discovery_engine_assistant.default` fails with `409 Already Exists`: Provisioning a search engine with `SEARCH_ADD_ON_LLM` automatically creates `default_assistant`. Import it into state (`terraform import 'google_discovery_engine_assistant.default["<env>"]' projects/<PROJECT_ID>/locations/global/collections/default_collection/engines/<ENGINE_ID>/assistants/default_assistant`) and re-run `make plan-connectors && make apply-connectors`.
 - If permission failure persists after 15 minutes: Escalate with the **dwd** template to re-verify Client ID and scope entries.
 
@@ -217,6 +227,7 @@ stateDiagram-v2
 - [ ] `make plan-connectors` generated `.plans/connectors.tfplan` with 0 deletes/replaces
 - [ ] Workspace data connectors provisioned (`google_mail`, `google_calendar`, `google_drive`, `google_chat`)
 - [ ] Atlassian Jira connector provisioned with multi-entity data stores (if enabled)
+- [ ] Atlassian Confluence connector provisioned with multi-entity federated data stores (if enabled)
 - [ ] Unified Search Engine provisioned for each environment with flattened connector data stores
 - [ ] Governed Gemini Enterprise Assistant provisioned with web grounding
 - [ ] Engine-scoped IAM permissions granted to User Cloud Identity Groups

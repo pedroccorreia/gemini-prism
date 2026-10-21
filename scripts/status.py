@@ -295,13 +295,14 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
             "exit_code": 0
         }
 
-    # 6. Stage 2 DWD / Jira Human Gate check
+    # 6. Stage 2 DWD / Jira / Confluence Human Gate check
     enable_connectors = tfvars.get("enable_connectors", False)
     enable_jira_connector = tfvars.get("enable_jira_connector", False)
+    enable_confluence_connector = tfvars.get("enable_confluence_connector", False)
     enable_people_directory_connector = tfvars.get("enable_people_directory_connector", False)
 
     # If neither connector is enabled, block on Workspace DWD (default flow)
-    if not enable_connectors and not enable_jira_connector and not enable_people_directory_connector:
+    if not enable_connectors and not enable_jira_connector and not enable_confluence_connector and not enable_people_directory_connector:
         return {
             "phase": 2,
             "phase_name": PHASES[2],
@@ -350,6 +351,46 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 "exit_code": 2
             }
 
+    # Confluence connector onboarding validation if enabled
+    if enable_confluence_connector:
+        confluence_cfg = tfvars.get("confluence_config", {})
+        jira_cfg = tfvars.get("jira_config", {})
+        # Fall back to jira instance_uri if not explicitly configured in confluence_cfg
+        instance_uri = str(confluence_cfg.get("instance_uri", "")).strip() or str(jira_cfg.get("instance_uri", "")).strip()
+        if not instance_uri or "example.atlassian.net" in instance_uri:
+            return {
+                "phase": 2,
+                "phase_name": "confluence_authorization",
+                "owner": "human",
+                "blockers": ["Atlassian Confluence instance URI not configured or placeholder in terraform.tfvars"],
+                "next_action": "make confluence-checklist",
+                "handoff_template": "confluence",
+                "exit_code": 2
+            }
+        connector_modes = confluence_cfg.get("connector_modes")
+        if isinstance(connector_modes, list) and ("DATA_INGESTION" in connector_modes or "FEDERATED" not in connector_modes):
+            return {
+                "phase": 2,
+                "phase_name": "confluence_authorization",
+                "owner": "human",
+                "blockers": ["Confluence connector must use FEDERATED mode (connector_modes = [\"FEDERATED\"]) in terraform.tfvars"],
+                "next_action": "make confluence-checklist",
+                "handoff_template": "confluence",
+                "exit_code": 2
+            }
+        confluence_auth_type = str(tfvars.get("confluence_auth_type", "OAUTH")).strip().upper()
+        data_source = str(confluence_cfg.get("data_source", "confluence")).strip()
+        if ".atlassian.net" in instance_uri.lower() and (confluence_auth_type in ("BASIC_AUTH", "API_TOKEN") or data_source == "confluence_server"):
+            return {
+                "phase": 2,
+                "phase_name": "confluence_authorization",
+                "owner": "human",
+                "blockers": ["Atlassian Confluence Cloud (*.atlassian.net) requires OAuth 2.0 (confluence_auth_type = \"OAUTH\" and data_source = \"confluence\"), not BASIC_AUTH/API_TOKEN"],
+                "next_action": "make confluence-checklist",
+                "handoff_template": "confluence",
+                "exit_code": 2
+            }
+
     # 7. Stage 3 Connectors & Engines check
     search_engines_output = state_outputs.get("search_engine_names", {}).get("value", {})
     assistants_output = state_outputs.get("assistant_names", {}).get("value", {})
@@ -370,6 +411,24 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
         for env in environments:
             if f"{env}-jira" not in connector_keys:
                 jira_connectors_present = False
+                break
+
+    # Check Confluence connector existence in state if enabled
+    confluence_connectors_present = True
+    if enable_confluence_connector:
+        connector_keys = set()
+        if state and "_error" not in state:
+            for res in state.get("resources", []):
+                if res.get("type") == "google_discovery_engine_data_connector":
+                    for inst in res.get("instances", []):
+                        if inst.get("index_key"):
+                            connector_keys.add(inst.get("index_key"))
+            data_connectors_output = state_outputs.get("data_connector_names", {}).get("value", {})
+            if isinstance(data_connectors_output, dict):
+                connector_keys.update(data_connectors_output.keys())
+        for env in environments:
+            if f"{env}-confluence" not in connector_keys:
+                confluence_connectors_present = False
                 break
 
     # Check People Directory connector existence in state if enabled
@@ -396,6 +455,7 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
         bool(assistants_output) and
         all(env in assistants_output for env in environments) and
         jira_connectors_present and
+        confluence_connectors_present and
         people_directory_connectors_present
     )
 
@@ -575,6 +635,54 @@ def print_jira_checklist():
     print(json.dumps(data, indent=2))
 
 
+def print_confluence_checklist():
+    """Fetch terraform confluence_checklist output, resolve Atlassian cloudId from tenant_info if accessible, and output JSON."""
+    import urllib.request
+    try:
+        raw = subprocess.check_output(["terraform", "output", "-json", "confluence_checklist"], text=True, stderr=subprocess.DEVNULL)
+        data = json.loads(raw)
+    except Exception:
+        # Fallback to reading terraform.tfvars directly
+        tfvars = parse_tfvars(os.path.join(os.getcwd(), "terraform.tfvars")) or {}
+        confluence_cfg = tfvars.get("confluence_config", {})
+        jira_cfg = tfvars.get("jira_config", {})
+        envs = tfvars.get("environments", ["non-prod", "prod"])
+        uri = confluence_cfg.get("instance_uri", "") or jira_cfg.get("instance_uri", "")
+        auth_type = tfvars.get("confluence_auth_type", "OAUTH")
+        data = {
+            env: {
+                "project_id": f"{tfvars.get('project_id_prefix', '')}{tfvars.get('customer_id', 'customer')}-{env}",
+                "instance_uri": uri,
+                "auth_type": auth_type,
+                "oauth_ingestion_callback_url": "https://vertexaisearch.cloud.google.com/console/oauth/confluence_oauth.html",
+                "oauth_actions_callback_url": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+                "developer_console_url": "https://developer.atlassian.com/console/myapps/",
+                "admin_console_url": "https://admin.atlassian.com",
+                "instance_id_help": "Retrieve your Atlassian Cloud ID UUID via: curl -s https://<site>.atlassian.net/_edge/tenant_info | jq -r .cloudId",
+                "entities": confluence_cfg.get("entities", ["space", "page", "blog", "attachment", "comment"])
+            }
+            for env in envs
+        }
+
+    # Attempt to resolve Atlassian cloudId if instance_uri is valid
+    for _env, info in data.items():
+        uri = info.get("instance_uri", "").rstrip("/")
+        if uri and "example.atlassian.net" not in uri and uri.startswith("http"):
+            try:
+                tenant_url = f"{uri}/_edge/tenant_info"
+                req = urllib.request.Request(tenant_url, headers={"User-Agent": "Prism-GE-Provisioning/1.0"})
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    t_data = json.loads(resp.read().decode("utf-8"))
+                    cloud_id = t_data.get("cloudId")
+                    if cloud_id:
+                        info["resolved_cloud_id"] = cloud_id
+                        info["instance_id"] = cloud_id
+            except Exception:
+                pass
+
+    print(json.dumps(data, indent=2))
+
+
 def print_people_directory_checklist():
     """Fetch terraform people_directory_checklist output and output JSON."""
     try:
@@ -610,6 +718,7 @@ def main():
     parser.add_argument("--json", action="store_true", help="Output status in JSON format for agent consumption.")
     parser.add_argument("--dwd-checklist", action="store_true", help="Print DWD checklist enriched with 21-digit numeric Client ID.")
     parser.add_argument("--jira-checklist", action="store_true", help="Print Jira checklist enriched with discovered Atlassian cloudId.")
+    parser.add_argument("--confluence-checklist", action="store_true", help="Print Confluence checklist enriched with discovered Atlassian cloudId.")
     parser.add_argument("--people-directory-checklist", action="store_true", help="Print Google People Directory connector onboarding checklist.")
     parser.add_argument("--deep", action="store_true", help="Perform deep drift check via terraform plan.")
     parser.add_argument("--workdir", default=".", help="Root directory of the Terraform repository.")
@@ -626,6 +735,10 @@ def main():
 
     if args.jira_checklist:
         print_jira_checklist()
+        sys.exit(0)
+
+    if args.confluence_checklist:
+        print_confluence_checklist()
         sys.exit(0)
 
     if args.people_directory_checklist:

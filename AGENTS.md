@@ -18,7 +18,7 @@ Execute `make status --json`. Act on `next_action`. Reference the matching stage
   3. Flip `enable_connectors = true` without explicit human confirmation.
   4. Use `--skip-preflight` or switch GCP identities/credentials.
   5. Commit `terraform.tfvars`, `terraform.tfstate`, or `config/license_allocations.json`.
-  6. Provision `DATA_INGESTION` connectors or use `jira_server` / `BASIC_AUTH` against Jira Cloud (`*.atlassian.net`).
+  6. Provision `DATA_INGESTION` connectors or use `jira_server` / `confluence_server` / `BASIC_AUTH` against Atlassian Cloud (`*.atlassian.net`).
 
 ## Human Gates
 | Stage | Gate Reason | Signal for Resuming | Template |
@@ -26,6 +26,7 @@ Execute `make status --json`. Act on `next_action`. Reference the matching stage
 | **Stage 0** | Missing inputs or invalid credentials | Valid `terraform.tfvars` / active ADC | `inputs` / `identity` |
 | **Stage 2** | Domain-Wide Delegation authorization | `enable_connectors = true` in tfvars | `dwd` |
 | **Stage 2** | Atlassian Jira authorization / URI missing | Valid Jira URI & credentials configured | `jira` |
+| **Stage 2** | Atlassian Confluence authorization / URI missing | Valid Confluence URI & credentials configured | `confluence` |
 | **Stage 4** | Missing billing subscription IDs | Subscription IDs set in tfvars | `subscription` |
 
 ## Phase Detection (`make status --json`)
@@ -51,6 +52,13 @@ Allow GCP projects in Security > API controls > Google Cloud Core Services. Set 
 ACTION REQUIRED (Atlassian Admin): Configure Atlassian Jira authorization.
 Run `make jira-checklist` to view the OAuth 2.0 (3LO) callback URL, required scopes, and instance URI.
 Configure Atlassian Developer Console app or API token, set TF_VAR_jira_auth, and update jira_config.instance_uri in terraform.tfvars.
+```
+
+### `confluence`
+```text
+ACTION REQUIRED (Atlassian Admin): Configure Atlassian Confluence authorization.
+Run `make confluence-checklist` to view the OAuth 2.0 (3LO) callback URL, required scopes, and instance URI.
+Configure Atlassian Developer Console app or API token, set TF_VAR_confluence_auth (or reuse TF_VAR_jira_auth), and update confluence_config.instance_uri in terraform.tfvars.
 ```
 
 ### `permissions`
@@ -84,6 +92,7 @@ Run `gcloud auth application-default login` and `gcloud auth login` with a custo
 | `google_cloud_identity_group: 403` | Missing Groups Admin permission | Post `permissions` template (requires Workspace Groups Admin) |
 | `connectors: PERMISSION_DENIED` | DWD token propagation latency | Wait 5 minutes and retry `make apply-connectors` |
 | `jira: 401/403/UNAUTHORIZED` | Invalid Jira credentials or scopes | Post `jira` template; verify `TF_VAR_jira_auth` |
+| `confluence: 401/403/UNAUTHORIZED` | Invalid Confluence credentials or scopes | Post `confluence` template; verify `TF_VAR_confluence_auth` / `TF_VAR_jira_auth` |
 | `DataStore ... is being deleted` | Async GCP deletion after collection removal (up to 2h) | Use a distinct `collection_id` in `jira_config` |
 | `DeleteCollection: 500 / spanner: value not found` | Deleting a `FEDERATED` connector while `state == "CREATING"` | Wait ~5m for BAP connection to reach `ACTIVE` or `FAILED` before deleting |
 | `assistant: 409 ALREADY_EXISTS` | Engine auto-creates `default_assistant` | Import into state before `make apply-connectors` |

@@ -16,6 +16,7 @@ sa_email        = null # Optional: Custom provisioner service account email. If 
 
 # Discovery Engine & Workspace Connectors
 location             = "global"
+planned_connectors   = ["workspace"]
 enable_connectors    = false
 workspace_connectors = ["google_mail", "google_calendar", "google_drive", "google_chat"]
 

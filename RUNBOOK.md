@@ -49,40 +49,49 @@ stateDiagram-v2
   - Google Workspace Admin role: **Groups Admin** (or Super Admin) in [Workspace Admin Console > Admin roles](https://admin.google.com/ac/roles) (required to create `google_cloud_identity_group`).
 
 **Do:**
-1. Check live status:
+1. Check live status and blockers:
    ```bash
    make status
    ```
-2. If `terraform.tfvars` does not exist, copy from template:
+2. Configure input variables and select planned enterprise connectors:
+   - **Interactive Terminal Wizard (Humans)**: Run the zero-dependency onboarding wizard:
+     ```bash
+     make configure
+     ```
+     Provides an interactive combo-box with arrow keys (`[↑/↓]`), spacebar selection (`[Space]`), Enter confirmation, and inline boxed help (`?`) with direct documentation links.
+   - **Cross-Harness Combo-Box (Agents)**: Inspect the `interactive_questions` array via `make status ARGS="--json"` or `make check-inputs ARGS="--json"`. Present questions through native harness tools (`ask_question`, `AskUserQuestion`) and apply answers non-interactively:
+     ```bash
+     python3 scripts/configure.py --apply-json '{"planned_connectors": ["workspace", "jira"], "customer_id": "acme"}'
+     ```
+   - **Manual Configuration**: Alternatively, copy template `cp terraform.tfvars.example terraform.tfvars` and edit customer values.
+3. Audit configured vs. missing variables:
    ```bash
-   cp terraform.tfvars.example terraform.tfvars
+   make check-inputs
    ```
-3. Populate required customer values in `terraform.tfvars`:
-   - `customer_id`: Unique slug (e.g. `acme`).
-   - `customer_name`: Full display name (e.g. `Acme Corporation`).
-   - `company_domain`: Primary Google Workspace domain (e.g. `acme.com`).
-   - `workspace_customer_id`: Google Workspace Customer ID (e.g. `C01234567`).
-   - `billing_account`: GCP Billing Account ID (e.g. `012345-6789AB-CDEF01`).
-   - `folder_id` or `org_id`: Resource hierarchy destination.
-   - `enable_connectors = false` (must remain `false` for initial Foundation apply).
-4. Run Terraform validation:
+   Audits `terraform.tfvars` against `planned_connectors`, surfacing missing/placeholder variables, step-by-step lookup guides, Admin Console URLs, CLI lookup commands, required IAM roles, and official Help Center links.
+4. Stage 0 Deployment Safety Guard:
+   Verify that `planned_connectors` records customer intent (e.g. `["workspace", "jira"]`), while `enable_connectors = false`, `enable_jira_connector = false`, and `enable_people_directory_connector = false` remain `false` during Stage 0 to protect Stage 1 Foundation and Stage 2 Human Gates.
+5. Run Terraform initialization and validation:
    ```bash
    terraform init
    terraform validate
    ```
 
 **Done when:**
-- `make status` returns exit code 0 and indicates readiness for Stage 1.
+- `make check-inputs` returns exit code 0 (`Audit Status: ALL CONFIGURED`).
+- `make status` returns exit code 0 and indicates readiness for Stage 1 (`foundation_apply`).
 
 **If it fails:**
 - Missing CLI tools: Install required packages (`terraform`, `gcloud`, `python3`).
+- Missing or placeholder variables: Run `make configure` or `make check-inputs` to view resolution guides and console URLs.
 - Authentication failure: Escalate using the **identity** template; run `gcloud auth application-default login` and `gcloud auth login`.
 - State mismatch detected: Escalate using the **state_mismatch** template. Reconcile or back up foreign state before proceeding.
 
 **Checklist:**
 - [ ] Required tools verified in PATH
 - [ ] Active GCP account authenticated with Workspace **Groups Admin** rights
-- [ ] `terraform.tfvars` populated with non-placeholder values
+- [ ] `planned_connectors` selected and `terraform.tfvars` populated with non-placeholder values
+- [ ] `make check-inputs` audits clean with 0 missing variables
 - [ ] Initial `terraform init` and `terraform validate` pass
 
 ---
@@ -148,22 +157,22 @@ stateDiagram-v2
      ```
    - Click **Authorize**.
 4. In Workspace Admin Console under **Security > Access and data control > API controls > Google Cloud Core Services**, allow access for the environment GCP project IDs if prompted.
-5. If Atlassian Jira is enabled (`enable_jira_connector = true`):
+5. If Atlassian Jira is planned (`"jira"` in `planned_connectors`):
    - Run `make jira-checklist` to view the Jira instance URI, resolved `cloudId` (`instance_id`), required OAuth scopes, and redirect URLs.
    - Ensure `connector_modes = ["FEDERATED"]` is configured in `jira_config`.
    - For Jira Cloud (`*.atlassian.net`, OAuth 2.0 3LO, v3): Register an OAuth 2.0 (3LO) app in [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) with callback URL `https://vertexaisearch.cloud.google.com/console/oauth/jira_oauth.html` (and `https://vertexaisearch.cloud.google.com/oauth-redirect` if Actions are enabled), configure the scopes from `jira-checklist`, and supply `client_id`, `client_secret`, and `instance_id` via `export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","instance_id":"..."}'` or `terraform.tfvars`.
    - Update `jira_config.instance_uri` and `jira_config.instance_id` in `terraform.tfvars`.
-6. If Google People & Org Directory is enabled (`enable_people_directory_connector = true`):
+6. If Google People & Org Directory is planned (`"people_directory"` in `planned_connectors`):
    - Run `make people-checklist` to view directory configuration, target entities, and sync parameters.
    - People Directory reuses the DWD authorization above; ensure all Directory scopes (`user.readonly`, `orgunit.readonly`, `customschema.readonly`) are authorized.
-7. Signal completion by updating `terraform.tfvars`:
-   ```hcl
-   enable_connectors = true
-   # and/or enable_people_directory_connector = true
+7. Enable planned connectors via Stage 2 Enablement Helper:
+   ```bash
+   make enable-connectors
    ```
+   The enablement helper verifies that all prerequisites and credentials for `planned_connectors` are configured and valid (Workspace domain and customer ID, Jira instance URI and OAuth/token credentials, People Directory scopes), then automatically flips the corresponding `enable_* = true` flags in `terraform.tfvars` (`enable_connectors`, `enable_jira_connector`, and/or `enable_people_directory_connector`). Alternatively, set flags manually in `terraform.tfvars`.
 
 **Done when:**
-- `enable_connectors = true` or `enable_people_directory_connector = true` is set in `terraform.tfvars`.
+- Planned connectors are validated and matching `enable_* = true` flags are enabled in `terraform.tfvars` via `make enable-connectors`.
 - If `enable_jira_connector = true`, `jira_config.instance_uri` is non-empty and non-placeholder.
 - `make status` returns exit code 0 (`phase: 3, phase_name: "connectors_and_engines_apply"`).
 
@@ -171,14 +180,24 @@ stateDiagram-v2
 - DWD authorization rejected by Admin Console: Verify executing human is a Workspace Super Admin and use the 21-digit numeric `client_id` from `make dwd-checklist`.
 - Incomplete scopes: Ensure all 11 required scopes are pasted without trailing spaces.
 - Jira OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make jira-checklist`, and credentials in `TF_VAR_jira_auth` have access to the target Jira Cloud instance.
+- Enablement helper reports missing prerequisites: Run `make check-inputs` to identify unresolved variables and consult the Help Center reference table below.
+
+### Connector Help Center Reference Table
+
+| Connector | Mode | Official Help Center & Guides | Admin Consoles | Required IAM Roles & Credentials |
+| :--- | :--- | :--- | :--- | :--- |
+| **Google Workspace** (Gmail, Calendar, Drive, Chat) | `FEDERATED` | [Workspace Connectors Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/introduction-to-connectors-and-data-stores)<br/>[Gmail Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/gmail)<br/>[Drive Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/drive) | [Workspace DWD Console](https://admin.google.com/ac/owl/domainwidedelegation)<br/>[Core Services](https://admin.google.com/ac/owl) | Google Workspace Super Admin<br/>21-digit numeric Client ID (`uniqueId`) |
+| **Atlassian Jira Cloud** | `FEDERATED` | [Jira Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/)<br/>[Atlassian Admin Console](https://admin.atlassian.com) | Atlassian Org Admin / Site Admin<br/>OAuth 2.0 (3LO) App / Token (`TF_VAR_jira_auth`) |
+| **Google People Directory** | `DATA_INGESTION` (Incremental) | [Google Directory API Guide](https://developers.google.com/admin-sdk/directory/v1/guides)<br/>[Cloud Identity Docs](https://cloud.google.com/identity/docs/) | [Workspace DWD Console](https://admin.google.com/ac/owl/domainwidedelegation) | Google Workspace Super Admin<br/>Service Agent DWD (0 additional credentials) |
+| **Atlassian Confluence** *(Roadmap P1)* | `DATA_INGESTION` (Incremental) | [Confluence Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) | Atlassian Org Admin<br/>OAuth 2.0 (3LO) with offline refresh token |
 
 **Checklist:**
 - [ ] Retrieved 21-digit numeric `client_id`, service agent email, and scope CSV via `make dwd-checklist`
 - [ ] Authorized DWD client for each environment in Google Workspace Admin Console (including Directory scopes)
 - [ ] Allowed GCP projects under Google Cloud Core Services
-- [ ] Configured Jira OAuth app / API token via `make jira-checklist` (if Jira enabled)
-- [ ] Inspected People Directory settings via `make people-checklist` (if People Directory enabled)
-- [ ] Flipped `enable_connectors = true` and/or `enable_people_directory_connector = true` in `terraform.tfvars`
+- [ ] Configured Jira OAuth app / API token via `make jira-checklist` (if Jira planned)
+- [ ] Inspected People Directory settings via `make people-checklist` (if People Directory planned)
+- [ ] Validated prerequisites and enabled planned connectors via `make enable-connectors`
 
 ---
 

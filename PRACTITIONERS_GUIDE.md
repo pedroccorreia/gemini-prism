@@ -256,11 +256,12 @@ The `ge-provisioning` repository is architected for **deterministic, state-drive
 
 | Repository Asset | Category | Primary Role & When Practitioners Use It |
 | :--- | :--- | :--- |
-| `Makefile` | Command Surface | Primary operator interface (`make status`, `make plan-foundation`, `make apply-foundation`, `make dwd-checklist`, `make jira-checklist`, `make plan-connectors`, `make apply-connectors`, `make licenses-dryrun`, `make licenses`, `make licenses-list`, `make verify`, `make test`). |
+| `Makefile` | Command Surface | Primary operator interface (`make status`, `make configure`, `make check-inputs`, `make plan-foundation`, `make apply-foundation`, `make dwd-checklist`, `make jira-checklist`, `make people-checklist`, `make enable-connectors`, `make plan-connectors`, `make apply-connectors`, `make licenses-dryrun`, `make licenses`, `make licenses-list`, `make verify`, `make test`). |
 | `main.tf` | Terraform IaC | Defines the 9-step resource graph across customer environments: GCP Projects, APIs, Service Agent Identity, `GSUITE` Location ACL, Cloud Identity Groups, User Stores, Workspace & Jira Data Connectors, Search Engines, Engine IAM, Governed Assistants, and `config/license_allocations.json`. |
 | `variables.tf` & `terraform.tfvars.example` | Terraform IaC | Declares all input variables, validation constraints, and a sanitized template for `terraform.tfvars`. |
 | `outputs.tf` | Terraform IaC | Emits environment resource maps plus structured `dwd_checklist` and `jira_checklist` objects. |
 | `providers.tf` & `versions.tf` | Terraform IaC | Configures `google`, `google-beta`, and `local` providers with dynamic `user_project_override` support. |
+| `scripts/configure.py` | Onboarding & Audit Engine | Interactive connector onboarding wizard (Mode B ANSI/TTY combo-box with arrow keys/spacebar and non-TTY fallback), cross-harness combo-box schema (Mode A `interactive_questions` for `ask_question`), missing-variable audit (`make check-inputs`) with Help Center links, Stage 0 deployment safety, and Stage 2 enablement helper (`make enable-connectors`). |
 | `scripts/status.py` | Automation Engine | Inspects live CLI tools, ADC identity, `terraform.tfvars`, and `terraform.tfstate` to detect the current deployment stage, enforce foreign state mismatch protection, and enrich DWD (`21-digit uniqueId`) and Jira (`cloudId`) checklists. |
 | `scripts/plan_guard.py` | Safety Barrier | Inspects binary `.tfplan` files via `terraform show -json` before and after plan creation. Halts with exit code `1` if any resource would be deleted or replaced unless `ALLOW_DESTROY=1` is set. |
 | `scripts/allocate_licenses.py` | License Tooling | Discovers Billing Account subscriptions (`--discover`), runs preflight project number & pool capacity assertions (`--dry-run`), distributes seats (`--distribute`), lists allocations (`--list`), retracts seats (`--retract`), and emits `license_config_names` HCL (`--emit-tfvars`). |
@@ -359,9 +360,39 @@ Set ALLOW_DESTROY=1 only if you explicitly intend to destroy/replace these resou
      "prod"     = "projects/123456789012/locations/global/licenseConfigs/..."
    }
    ```
-   Paste this block into `terraform.tfvars` and run `make plan-connectors && make apply-connectors`. Terraform will update `google_discovery_engine_user_store.default` so `default_license_config`, `enable_license_auto_register = true`, and `enable_expired_license_auto_update = true` are permanently managed in Terraform state with zero drift.
+    Paste this block into `terraform.tfvars` and run `make plan-connectors && make apply-connectors`. Terraform will update `google_discovery_engine_user_store.default` so `default_license_config`, `enable_license_auto_register = true`, and `enable_expired_license_auto_update = true` are permanently managed in Terraform state with zero drift.
 
-#### 2.4 Post-Deployment Health Verification with `scripts/verify.py`
+#### 2.4 Interactive Onboarding & Missing-Variable Audit with `scripts/configure.py`
+
+`scripts/configure.py` provides a zero-dependency (100% Python standard library) onboarding engine designed for both human operators and autonomous coding harness agents:
+
+```bash
+# Launch interactive terminal combo-box (humans):
+make configure
+
+# Audit inputs, missing variables, and Help Center links:
+make check-inputs
+
+# Non-interactive application for coding harnesses (Mode A):
+python3 scripts/configure.py --apply-json '{"planned_connectors":["workspace","jira"],"customer_id":"acme"}'
+
+# Stage 2 connector enablement helper:
+make enable-connectors
+```
+
+##### Core Operational Capabilities:
+1. **Mode A: Cross-Harness Combo-Box Integration:**
+   When invoked with `--check --json`, `configure.py` emits an `interactive_questions` array containing multi-select options, question prompts, and official Google Cloud Gemini Enterprise Help Center documentation URLs. Coding harnesses (Claude Code, Gemini CLI, Cursor, JetSki) can inspect this schema and present native combo-box UI (`ask_question` / `AskUserQuestion`), applying responses back non-interactively via `--apply-json '<json>'` or `--connectors`.
+2. **Mode B: Interactive Terminal Combo-Box:**
+   When run in an interactive terminal (`sys.stdin.isatty() == True`), `configure.py` renders an ANSI arrow-key (`[↑/↓]`) and spacebar (`[Space]`) multi-select combo-box (`[✓] / [ ]`). If raw mode or TTY is unavailable, it gracefully falls back to numbered prompt selection. Operators can type `?` at any prompt to display an inline boxed "Where to find this" guide with exact console links, CLI lookup commands, and documentation.
+3. **Stage 0 Deployment Safety Guard:**
+   During Stage 0, `configure.py` records `planned_connectors` (e.g. `["workspace", "jira"]`) in `terraform.tfvars` while strictly guaranteeing `enable_connectors = false`, `enable_jira_connector = false`, and `enable_people_directory_connector = false` to prevent premature connector provisioning before Foundation apply.
+4. **Missing-Variable Audit (`make check-inputs`):**
+   Compares `terraform.tfvars` against `planned_connectors`, highlighting missing and placeholder variables alongside exact admin console URLs, CLI lookup commands, required IAM roles, and official Help Center documentation.
+5. **Stage 2 Enablement Helper (`make enable-connectors`):**
+   After Foundation apply and Stage 2 authorizations are complete, `make enable-connectors` validates prerequisites (Workspace customer ID/domain, Jira URI/credentials, People Directory scopes) and automatically flips the corresponding `enable_* = true` flags in `terraform.tfvars`.
+
+#### 2.5 Post-Deployment Health Verification with `scripts/verify.py`
 
 Run `make verify` (which invokes `python3 scripts/verify.py --wait 15m`) in Stage 5 to validate every environment project:
 
@@ -380,7 +411,7 @@ python3 scripts/verify.py --project <PROJECT_ID> --json
 - `Search App (<engine_id>)`: Verifies the unified engine in `default_collection` and counts attached `DataStores`.
 - `Assistant (default_assistant)`: Verifies `ACTIVE` state and `Web Grounding: WEB_GROUNDING_TYPE_GOOGLE_SEARCH`.
 
-#### 2.5 Red-Team Contract & Security Testing with `scripts/test_red.py`
+#### 2.6 Red-Team Contract & Security Testing with `scripts/test_red.py`
 
 Before committing any modification to `.tf` files, Python scripts, or documentation, run:
 
@@ -404,11 +435,11 @@ make test
    gcloud auth application-default login
    ```
    *(Optional: If provisioning via a dedicated Service Account in an existing bootstrap project, run `./bootstrap.sh` to create `gemini-provisioner@<BOOTSTRAP_PROJECT>.iam.gserviceaccount.com` and grant yourself `roles/iam.serviceAccountTokenCreator`.)*
-2. Create `terraform.tfvars` from the template:
-   ```bash
-   cp terraform.tfvars.example terraform.tfvars
-   ```
-3. Populate your customer values in `terraform.tfvars`, keeping `enable_connectors = false` and `enable_jira_connector = false` for Stage 1:
+2. Configure customer values and select planned enterprise connectors:
+   - **Interactive Wizard (Humans)**: Run `make configure` to launch the multi-select combo-box.
+   - **Cross-Harness (Agents)**: Inspect `interactive_questions` from `make status ARGS="--json"` and apply via `python3 scripts/configure.py --apply-json '<json>'`.
+   - **Manual Configuration**: Alternatively, copy `cp terraform.tfvars.example terraform.tfvars` and edit customer values.
+   Ensure `planned_connectors` records your intended connectors (e.g. `["workspace", "jira"]`), while `enable_connectors = false` and `enable_jira_connector = false` remain `false` for Stage 1:
    ```yaml
    customer_id           = "acme"
    customer_name         = "Acme Corporation"
@@ -417,9 +448,15 @@ make test
    workspace_customer_id = "C09876543"
    billing_account       = "012345-6789AB-CDEF01"
    folder_id             = "123456789012"
+   planned_connectors    = ["workspace"]
    enable_connectors     = false
    enable_jira_connector = false
    ```
+3. Audit inputs and missing variables:
+   ```bash
+   make check-inputs
+   ```
+   Confirm all required foundation variables are configured and no example placeholders remain.
 4. Initialize Terraform and verify Stage 0 readiness:
    ```bash
    terraform init
@@ -456,8 +493,12 @@ make test
      ```bash
      export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"<resolved_cloud_id>"}'
      ```
-3. **Unlock Stage 3:**
-   - Set `enable_connectors = true` in `terraform.tfvars`.
+3. **Enable Planned Connectors & Unlock Stage 3:**
+   - Run the Stage 2 enablement helper to validate prerequisites and activate connectors:
+     ```bash
+     make enable-connectors
+     ```
+     This validates all prerequisites (Workspace domain, customer ID, Jira URI/OAuth, People Directory) and sets the matching `enable_* = true` flags in `terraform.tfvars`.
    - Run `make status` and confirm it reports `Stage 3 — Connectors And Engines Apply` (`exit code 0`).
 
 #### Stage 3 — Connectors, Search Engines & Governed Assistants Apply

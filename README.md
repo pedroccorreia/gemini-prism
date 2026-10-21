@@ -145,7 +145,16 @@ flowchart TD
 
 ## Configuration
 
-Copy the example variables file:
+### Interactive Setup Wizard & Variable Audit
+
+Launch the zero-dependency onboarding wizard to configure customer variables and select planned enterprise connectors:
+
+```bash
+make configure      # Launch interactive terminal combo-box wizard
+make check-inputs   # Audit inputs, missing variables, and Help Center links
+```
+
+Alternatively, copy the example variables file:
 
 ```bash
 cp terraform.tfvars.example terraform.tfvars
@@ -161,6 +170,9 @@ company_domain        = "example.com"
 workspace_customer_id = "C01234567"
 billing_account       = "0X1XXX-XXXXXX-XXXXXX"
 folder_id             = "123456789012"
+
+# Planned enterprise connectors (workspace, jira, people_directory)
+planned_connectors    = ["workspace"]
 
 # Staged rollout flag (must be false for Stage 1)
 enable_connectors     = false
@@ -187,10 +199,14 @@ All operations are executed through the standard `Makefile`:
 
 ```bash
 make status            # Check live phase and identify blockers
+make configure         # Stage 0: Interactive connector onboarding wizard
+make check-inputs      # Stage 0: Audit inputs and missing variables
 make plan-foundation   # Stage 1: Generate foundation plan with safety guard
 make apply-foundation  # Stage 1: Apply foundation infrastructure
 make dwd-checklist     # Stage 2: Display Workspace DWD authorization details
 make jira-checklist    # Stage 2: Display Atlassian Jira authorization details
+make people-checklist  # Stage 2: Display People Directory authorization details
+make enable-connectors # Stage 2: Validate prerequisites and enable planned connectors
 make plan-connectors   # Stage 3: Generate connectors plan with safety guard
 make apply-connectors  # Stage 3: Apply connectors, engines & assistants
 make licenses-dryrun   # Stage 4: Verify seat distribution preflight assertions
@@ -230,6 +246,7 @@ make test              # Run unit tests and Terraform validation
 │   └── ...                          # Supporting architecture collateral
 ├── scripts/
 │   ├── allocate_licenses.py         # License distribution & auto-registration tool
+│   ├── configure.py                 # Interactive connector onboarding & variable audit engine
 │   ├── create_github_issues.sh      # Batch publisher for planned connector issues
 │   ├── plan_guard.py                # Safety barrier preventing destroy/replace
 │   ├── status.py                    # State-driven phase detection engine

@@ -13,8 +13,13 @@ Systematically verifies:
 8. AGENTS.md line count constraint (<= 150 lines) and hand-off template completeness.
 9. Link integrity across all repo markdown files.
 10. Data Scrubbing: 0 leaked customer identifiers, domains, or real IDs in git tracked files.
+11. configure.py Mode A CLI, JSON schema validation, idempotency, and stage 0 safety guard.
+12. configure.py Mode B interactive terminal UI, non-TTY fallback, and contextual help.
+13. status.py configuration engine integration (Stage 0 interactive questions & Stage 2 planned connectors).
+14. Git branch contract and GitHub issue 05 specification & publication script contract.
 """
 
+import io
 import json
 import os
 import re
@@ -30,6 +35,7 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 import scripts.allocate_licenses as alloc_module
+import scripts.configure as configure_module
 import scripts.plan_guard as plan_guard_module
 import scripts.status as status_module
 import scripts.verify as verify_module
@@ -1214,6 +1220,560 @@ class TestVerifyWaitParsing(unittest.TestCase):
         )
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("Invalid duration format", proc.stderr)
+
+
+class TestConfigureCLI(unittest.TestCase):
+    """Hermetic unit and integration tests for configure.py CLI and Mode A schema integration."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _run_configure(self, args, input_text=None):
+        cmd = [sys.executable, os.path.join(REPO_ROOT, "scripts", "configure.py")] + args
+        return subprocess.run(
+            cmd,
+            cwd=self.temp_dir.name,
+            capture_output=True,
+            text=True,
+            input=input_text
+        )
+
+    def _create_tfvars(self, data, filename="terraform.tfvars"):
+        tfvars_path = os.path.join(self.temp_dir.name, filename)
+        with open(tfvars_path, "w", encoding="utf-8") as f:
+            for k, v in data.items():
+                if isinstance(v, bool):
+                    f.write(f'{k} = {"true" if v else "false"}\n')
+                elif isinstance(v, list):
+                    items = ", ".join(f'"{i}"' for i in v)
+                    f.write(f'{k} = [{items}]\n')
+                elif isinstance(v, dict):
+                    entries = []
+                    for mk, mv in v.items():
+                        if isinstance(mv, list):
+                            items_str = ", ".join(f'"{i}"' for i in mv)
+                            entries.append(f'{mk} = [{items_str}]')
+                        elif isinstance(mv, str):
+                            entries.append(f'{mk} = "{mv}"')
+                        elif isinstance(mv, bool):
+                            entries.append(f'{mk} = {"true" if mv else "false"}')
+                        elif mv is None:
+                            entries.append(f'{mk} = null')
+                        else:
+                            entries.append(f'{mk} = {mv}')
+                    f.write(f'{k} = {{\n  {",\n  ".join(entries)}\n}}\n')
+                elif v is None:
+                    f.write(f'{k} = null\n')
+                else:
+                    f.write(f'{k} = "{v}"\n')
+        return tfvars_path
+
+    def _create_state(self, project_ids=None):
+        state_path = os.path.join(self.temp_dir.name, "terraform.tfstate")
+        project_ids = project_ids or {"non-prod": "custcorp-nonprod", "prod": "custcorp-prod"}
+        state_data = {
+            "version": 4,
+            "terraform_version": "1.14.8",
+            "resources": [],
+            "outputs": {
+                "project_ids": {
+                    "value": project_ids,
+                    "type": ["map", "string"]
+                }
+            }
+        }
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(state_data, f)
+        return state_path
+
+    def test_configure_check_missing_inputs_returns_exit_1(self):
+        """configure.py --check must return exit 1 and display missing variables table when inputs unconfigured."""
+        proc = self._run_configure(["--check", "--workdir", self.temp_dir.name])
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("Missing / Placeholder Variables", proc.stdout)
+        self.assertIn("customer_id", proc.stdout)
+        self.assertIn("billing_account", proc.stdout)
+        self.assertIn("Help Center", proc.stdout)
+
+    def test_configure_check_json_emits_valid_schema(self):
+        """configure.py --check --json must emit valid JSON with status, stage, questions, and missing variables."""
+        proc = self._run_configure(["--check", "--json", "--workdir", self.temp_dir.name])
+        self.assertEqual(proc.returncode, 1)
+        data = json.loads(proc.stdout)
+        self.assertEqual(data.get("status"), "missing_variables")
+        self.assertEqual(data.get("stage"), 0)
+        self.assertIn("interactive_questions", data)
+        self.assertIn("configured_variables", data)
+        self.assertIn("missing_variables", data)
+        self.assertIn("planned_connectors", data)
+
+        missing = data["missing_variables"]
+        self.assertTrue(isinstance(missing, list))
+        self.assertTrue(len(missing) > 0)
+        required_fields = ["name", "description", "where_to_get", "admin_url", "lookup_command", "required_roles", "help_center_url"]
+        for item in missing:
+            for field in required_fields:
+                self.assertIn(field, item, f"Missing field '{field}' in missing_variable item")
+
+    def test_configure_interactive_questions_contract(self):
+        """interactive_questions contract: planned_connectors, multi-select, and valid Help Center docs_urls."""
+        questions = configure_module.get_interactive_questions()
+        self.assertTrue(len(questions) >= 1)
+        q = next((item for item in questions if item.get("id") == "planned_connectors"), None)
+        self.assertIsNotNone(q, "planned_connectors question missing from interactive_questions")
+        self.assertTrue(q.get("is_multi_select"))
+        self.assertEqual(q.get("default"), ["workspace"])
+
+        options = q.get("options", [])
+        values = [opt["value"] for opt in options]
+        self.assertIn("workspace", values)
+        self.assertIn("jira", values)
+        self.assertIn("people_directory", values)
+
+        for opt in options:
+            self.assertTrue(len(opt.get("label", "")) > 0)
+            self.assertTrue(len(opt.get("description", "")) > 0)
+            docs_url = opt.get("docs_url", "")
+            self.assertTrue(
+                docs_url.startswith("https://docs.cloud.google.com/") or
+                docs_url.startswith("https://developers.google.com/"),
+                f"docs_url '{docs_url}' for {opt['value']} does not point to Google Help Center / Dev Docs"
+            )
+
+    def test_configure_apply_json_valid_updates_tfvars_idempotently(self):
+        """configure.py --apply-json applies valid JSON updates to terraform.tfvars idempotently."""
+        payload = json.dumps({
+            "planned_connectors": ["workspace", "jira"],
+            "customer_id": "custcorp",
+            "company_domain": "custcorp.com"
+        })
+        proc = self._run_configure(["--workdir", self.temp_dir.name, "--apply-json", payload])
+        self.assertEqual(proc.returncode, 0)
+
+        tfvars_path = os.path.join(self.temp_dir.name, "terraform.tfvars")
+        parsed = configure_module.parse_tfvars(tfvars_path)
+        self.assertEqual(parsed.get("planned_connectors"), ["workspace", "jira"])
+        self.assertEqual(parsed.get("customer_id"), "custcorp")
+        self.assertEqual(parsed.get("company_domain"), "custcorp.com")
+
+        # Second run for idempotency check
+        proc2 = self._run_configure(["--workdir", self.temp_dir.name, "--apply-json", payload])
+        self.assertEqual(proc2.returncode, 0)
+
+        with open(tfvars_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        customer_matches = re.findall(r'^\s*customer_id\s*=', content, re.MULTILINE)
+        self.assertEqual(len(customer_matches), 1, "Duplicate customer_id entries generated in terraform.tfvars")
+
+    def test_configure_apply_json_malformed_json_exits_1(self):
+        """configure.py --apply-json with malformed JSON exits code 1."""
+        proc = self._run_configure(["--workdir", self.temp_dir.name, "--apply-json", "{bad"])
+        self.assertEqual(proc.returncode, 1)
+        combined_output = proc.stdout + proc.stderr
+        self.assertIn("Invalid JSON payload", combined_output)
+
+    def test_configure_apply_json_invalid_connector_exits_1(self):
+        """configure.py --apply-json with invalid planned_connectors exits code 1."""
+        payload = json.dumps({"planned_connectors": ["unknown_connector"]})
+        proc = self._run_configure(["--workdir", self.temp_dir.name, "--apply-json", payload])
+        self.assertEqual(proc.returncode, 1)
+        combined_output = proc.stdout + proc.stderr
+        self.assertIn("Invalid connector", combined_output)
+
+    def test_configure_cli_flags_connectors_and_set(self):
+        """configure.py CLI flags --connectors and --set correctly update terraform.tfvars."""
+        proc = self._run_configure([
+            "--workdir", self.temp_dir.name,
+            "--connectors", "workspace,jira",
+            "--set", "customer_id=mycorp",
+            "--set", "company_domain=mycorp.com"
+        ])
+        self.assertEqual(proc.returncode, 0)
+        tfvars_path = os.path.join(self.temp_dir.name, "terraform.tfvars")
+        parsed = configure_module.parse_tfvars(tfvars_path)
+        self.assertEqual(parsed.get("planned_connectors"), ["workspace", "jira"])
+        self.assertEqual(parsed.get("customer_id"), "mycorp")
+        self.assertEqual(parsed.get("company_domain"), "mycorp.com")
+
+    def test_configure_stage_0_safety_guard_forces_enable_false(self):
+        """In Stage 0, --apply-json strictly forces enable_* = false regardless of input."""
+        payload = json.dumps({
+            "planned_connectors": ["workspace", "jira", "people_directory"],
+            "enable_connectors": True,
+            "enable_jira_connector": True,
+            "enable_people_directory_connector": True
+        })
+        proc = self._run_configure(["--workdir", self.temp_dir.name, "--apply-json", payload])
+        self.assertEqual(proc.returncode, 0)
+
+        tfvars_path = os.path.join(self.temp_dir.name, "terraform.tfvars")
+        parsed = configure_module.parse_tfvars(tfvars_path)
+        self.assertEqual(parsed.get("planned_connectors"), ["workspace", "jira", "people_directory"])
+        self.assertFalse(parsed.get("enable_connectors"))
+        self.assertFalse(parsed.get("enable_jira_connector"))
+        self.assertFalse(parsed.get("enable_people_directory_connector"))
+
+    def test_configure_enable_connectors_stage_0_refusal(self):
+        """configure.py --enable-connectors in Stage 0 refuses and exits code 1."""
+        proc = self._run_configure(["--workdir", self.temp_dir.name, "--enable-connectors"])
+        self.assertEqual(proc.returncode, 1)
+        combined_output = proc.stdout + proc.stderr
+        self.assertTrue(
+            "Stage 1 Foundation must be applied before enabling connectors" in combined_output or
+            "Configuration file not found" in combined_output
+        )
+
+    def test_configure_enable_connectors_stage_2_success(self):
+        """configure.py --enable-connectors in Stage 2 with satisfied prerequisites cleanly flips enable_* = true."""
+        self._create_state(project_ids={"non-prod": "cust-np", "prod": "cust-p"})
+        self._create_tfvars({
+            "customer_id": "custcorp",
+            "customer_name": "Cust Corp",
+            "company_domain": "custcorp.com",
+            "workspace_customer_id": "C0998877",
+            "billing_account": "012345-678901-234567",
+            "planned_connectors": ["workspace", "jira"],
+            "jira_config": {
+                "instance_uri": "https://custcorp.atlassian.net",
+                "connector_modes": ["FEDERATED"]
+            },
+            "jira_auth": "dummy-token-for-test",
+            "enable_connectors": False,
+            "enable_jira_connector": False,
+            "enable_people_directory_connector": False
+        })
+
+        proc = self._run_configure(["--workdir", self.temp_dir.name, "--enable-connectors"])
+        self.assertEqual(proc.returncode, 0)
+
+        tfvars_path = os.path.join(self.temp_dir.name, "terraform.tfvars")
+        parsed = configure_module.parse_tfvars(tfvars_path)
+        self.assertTrue(parsed.get("enable_connectors"))
+        self.assertTrue(parsed.get("enable_jira_connector"))
+        self.assertFalse(parsed.get("enable_people_directory_connector"))
+
+    def test_configure_check_success_when_all_variables_configured(self):
+        """configure.py --check returns exit code 0 when all required variables are configured."""
+        self._create_tfvars({
+            "customer_id": "custcorp",
+            "customer_name": "Cust Corp",
+            "company_domain": "custcorp.com",
+            "workspace_customer_id": "C0998877",
+            "billing_account": "012345-678901-234567",
+            "planned_connectors": ["workspace"]
+        })
+        proc = self._run_configure(["--check", "--workdir", self.temp_dir.name])
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("All required variables for planned connectors are configured", proc.stdout)
+
+
+class TestConfigureInteractive(unittest.TestCase):
+    """Hermetic unit and integration tests for configure.py Mode B interactive & fallback UI."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _run_configure_piped(self, input_text):
+        cmd = [sys.executable, os.path.join(REPO_ROOT, "scripts", "configure.py"), "--workdir", self.temp_dir.name]
+        return subprocess.run(
+            cmd,
+            cwd=self.temp_dir.name,
+            capture_output=True,
+            text=True,
+            input=input_text
+        )
+
+    def test_mode_b_non_tty_fallback_piped_selection(self):
+        """Mode B non-TTY fallback accepts piped stdin ('1,2\\n') and saves planned_connectors to tfvars."""
+        proc = self._run_configure_piped("1,2\n")
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("[1] Google Workspace", proc.stdout)
+        self.assertIn("[2] Jira Cloud", proc.stdout)
+
+        tfvars_path = os.path.join(self.temp_dir.name, "terraform.tfvars")
+        parsed = configure_module.parse_tfvars(tfvars_path)
+        self.assertEqual(parsed.get("planned_connectors"), ["workspace", "jira"])
+        self.assertFalse(parsed.get("enable_connectors"))
+
+    def test_mode_b_inline_help_prompt(self):
+        """Mode B inline '?' prompt renders boxed 'Where to find this' guide with Help Center links."""
+        proc = self._run_configure_piped("?\n1\n")
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("WHERE TO FIND THIS", proc.stdout)
+        self.assertIn("connectors/drive", proc.stdout)
+        self.assertIn("https://docs.cloud.google.com/gemini/enterprise/docs/", proc.stdout)
+        self.assertIn("https://developer.atlassian.com/console/myapps/", proc.stdout)
+
+        tfvars_path = os.path.join(self.temp_dir.name, "terraform.tfvars")
+        parsed = configure_module.parse_tfvars(tfvars_path)
+        self.assertEqual(parsed.get("planned_connectors"), ["workspace"])
+
+    def test_mode_b_accepts_default_on_empty_newline(self):
+        """Mode B fallback accepts default selection when empty newline is sent."""
+        proc = self._run_configure_piped("\n")
+        self.assertEqual(proc.returncode, 0)
+
+        tfvars_path = os.path.join(self.temp_dir.name, "terraform.tfvars")
+        parsed = configure_module.parse_tfvars(tfvars_path)
+        self.assertEqual(parsed.get("planned_connectors"), ["workspace"])
+
+    def test_print_boxed_help_output(self):
+        """print_boxed_help directly outputs Help Center URLs and credential lookup instructions."""
+        captured = io.StringIO()
+        with patch("sys.stdout", captured):
+            configure_module.print_boxed_help()
+        out = captured.getvalue()
+        self.assertIn("WHERE TO FIND THIS", out)
+        self.assertIn("connectors/drive", out)
+        self.assertIn("connectors/jira-cloud", out)
+        self.assertIn("https://docs.cloud.google.com/gemini/enterprise/docs/", out)
+        self.assertIn("https://developers.google.com/admin-sdk/directory/v1/guides", out)
+
+
+class TestStatusConfigIntegration(unittest.TestCase):
+    """Integration test cases for scripts/status.py integration with configure.py."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.tools_patcher = patch("scripts.status.check_cli_tools", return_value=[])
+        self.tools_patcher.start()
+
+    def tearDown(self):
+        self.tools_patcher.stop()
+        self.temp_dir.cleanup()
+
+    def _create_tfvars(self, data):
+        tfvars_path = os.path.join(self.temp_dir.name, "terraform.tfvars")
+        with open(tfvars_path, "w", encoding="utf-8") as f:
+            for k, v in data.items():
+                if isinstance(v, bool):
+                    f.write(f'{k} = {"true" if v else "false"}\n')
+                elif isinstance(v, list):
+                    items = ", ".join(f'"{i}"' for i in v)
+                    f.write(f'{k} = [{items}]\n')
+                elif isinstance(v, dict):
+                    entries = []
+                    for mk, mv in v.items():
+                        if isinstance(mv, list):
+                            items_str = ", ".join(f'"{i}"' for i in mv)
+                            entries.append(f'{mk} = [{items_str}]')
+                        elif isinstance(mv, str):
+                            entries.append(f'{mk} = "{mv}"')
+                        elif isinstance(mv, bool):
+                            entries.append(f'{mk} = {"true" if mv else "false"}')
+                        elif mv is None:
+                            entries.append(f'{mk} = null')
+                        else:
+                            entries.append(f'{mk} = {mv}')
+                    f.write(f'{k} = {{\n  {",\n  ".join(entries)}\n}}\n')
+                elif v is None:
+                    f.write(f'{k} = null\n')
+                else:
+                    f.write(f'{k} = "{v}"\n')
+        return tfvars_path
+
+    def _create_state(self, project_ids=None):
+        state_path = os.path.join(self.temp_dir.name, "terraform.tfstate")
+        project_ids = project_ids or {"non-prod": "mycorp-nonprod", "prod": "mycorp-prod"}
+        state_data = {
+            "version": 4,
+            "terraform_version": "1.14.8",
+            "resources": [],
+            "outputs": {
+                "project_ids": {
+                    "value": project_ids,
+                    "type": ["map", "string"]
+                }
+            }
+        }
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(state_data, f)
+        return state_path
+
+    def test_status_stage_0_next_action_references_configure_and_check_inputs(self):
+        """Stage 0 status next_action must guide user to 'make configure' and 'make check-inputs'."""
+        with patch("scripts.status.check_identity", return_value=(True, "test@example.com")):
+            # Case A: Missing terraform.tfvars
+            status_missing = status_module.determine_status(self.temp_dir.name)
+            self.assertEqual(status_missing["phase"], 0)
+            self.assertEqual(status_missing["exit_code"], 1)
+            self.assertIn("make configure", status_missing["next_action"])
+            self.assertIn("make check-inputs", status_missing["next_action"])
+
+            # Case B: Placeholder values in terraform.tfvars
+            self._create_tfvars({
+                "customer_id": "example-customer",
+                "customer_name": "Example Corp",
+                "company_domain": "example.com",
+                "workspace_customer_id": "C01234567",
+                "billing_account": "000000-111111-222222"
+            })
+            status_placeholders = status_module.determine_status(self.temp_dir.name)
+            self.assertEqual(status_placeholders["phase"], 0)
+            self.assertEqual(status_placeholders["exit_code"], 1)
+            self.assertIn("make configure", status_placeholders["next_action"])
+            self.assertIn("make check-inputs", status_placeholders["next_action"])
+
+    def test_status_stage_0_json_embeds_interactive_questions(self):
+        """Stage 0 status.py --json must embed interactive_questions schema in output."""
+        cmd = [
+            sys.executable, os.path.join(REPO_ROOT, "scripts", "status.py"),
+            "--json", "--skip-auth-check", "--skip-tools-check",
+            "--workdir", self.temp_dir.name
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 1)
+        data = json.loads(proc.stdout)
+        self.assertEqual(data.get("phase"), 0)
+        self.assertIn("interactive_questions", data)
+        questions = data["interactive_questions"]
+        self.assertTrue(isinstance(questions, list))
+        self.assertTrue(len(questions) > 0)
+        self.assertEqual(questions[0].get("id"), "planned_connectors")
+        self.assertTrue(questions[0].get("is_multi_select"))
+
+    def test_status_stage_2_planned_connectors_guidance(self):
+        """Stage 2 status must validate planned_connectors and guide user to 'make enable-connectors'."""
+        self._create_state()
+        self._create_tfvars({
+            "customer_id": "mycorp",
+            "customer_name": "My Corp",
+            "company_domain": "mycorp.com",
+            "workspace_customer_id": "C012345678",
+            "billing_account": "012345-678901-234567",
+            "planned_connectors": ["workspace", "jira"],
+            "enable_connectors": False,
+            "enable_jira_connector": False
+        })
+        with patch("scripts.status.check_identity", return_value=(True, "test@example.com")):
+            status = status_module.determine_status(self.temp_dir.name)
+            self.assertEqual(status["phase"], 2)
+            self.assertEqual(status["exit_code"], 2)
+            self.assertIn("make enable-connectors", status["next_action"])
+
+    def test_status_stage_2_rejects_non_list_planned_connectors(self):
+        """Stage 2 status must fail with exit 1 if planned_connectors is not a list."""
+        self._create_state()
+        tfvars_path = os.path.join(self.temp_dir.name, "terraform.tfvars")
+        with open(tfvars_path, "w", encoding="utf-8") as f:
+            f.write('customer_id = "mycorp"\n')
+            f.write('customer_name = "My Corp"\n')
+            f.write('company_domain = "mycorp.com"\n')
+            f.write('workspace_customer_id = "C012345678"\n')
+            f.write('billing_account = "012345-678901-234567"\n')
+            f.write('planned_connectors = "workspace"\n')
+            f.write('enable_connectors = false\n')
+
+        with patch("scripts.status.check_identity", return_value=(True, "test@example.com")):
+            status = status_module.determine_status(self.temp_dir.name)
+            self.assertEqual(status["phase"], 2)
+            self.assertEqual(status["exit_code"], 1)
+            self.assertIn("must be a list of strings", status["blockers"][0])
+
+    def test_status_stage_2_rejects_invalid_planned_connector(self):
+        """Stage 2 status must fail with exit 1 if planned_connectors contains invalid connector."""
+        self._create_state()
+        self._create_tfvars({
+            "customer_id": "mycorp",
+            "customer_name": "My Corp",
+            "company_domain": "mycorp.com",
+            "workspace_customer_id": "C012345678",
+            "billing_account": "012345-678901-234567",
+            "planned_connectors": ["workspace", "unsupported_connector"],
+            "enable_connectors": False
+        })
+        with patch("scripts.status.check_identity", return_value=(True, "test@example.com")):
+            status = status_module.determine_status(self.temp_dir.name)
+            self.assertEqual(status["phase"], 2)
+            self.assertEqual(status["exit_code"], 1)
+            self.assertIn("Invalid connector(s) in planned_connectors", status["blockers"][0])
+
+
+class TestBranchAndIssueContracts(unittest.TestCase):
+    """Contract tests for git feature branch and GitHub issue specification/automation."""
+
+    def test_git_branch_contract(self):
+        """Active git branch must be feat/interactive-connector-onboarding."""
+        proc = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout.strip(), "feat/interactive-connector-onboarding")
+
+    def test_issue_05_specification_contract(self):
+        """.github/issues/05_interactive_connector_onboarding.md must exist and satisfy schema."""
+        issue_path = os.path.join(REPO_ROOT, ".github", "issues", "05_interactive_connector_onboarding.md")
+        self.assertTrue(os.path.isfile(issue_path), f"Issue spec not found at {issue_path}")
+
+        with open(issue_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Frontmatter validation
+        self.assertIn("title:", content)
+        self.assertIn("priority:", content)
+        self.assertIn("labels:", content)
+
+        # Standard section headings validation
+        required_headings = [
+            "### Summary",
+            "### Priority",
+            "### Architecture & Dual-Mode Mechanics",
+            "### Acceptance Criteria"
+        ]
+        for heading in required_headings:
+            self.assertIn(heading, content, f"Heading '{heading}' missing from issue 05 spec")
+
+    def test_create_github_issues_script_registration_and_args(self):
+        """create_github_issues.sh must declare ISSUES['05'], support targeted args, and reject invalid keys."""
+        script_path = os.path.join(REPO_ROOT, "scripts", "create_github_issues.sh")
+        self.assertTrue(os.path.isfile(script_path), f"Script not found at {script_path}")
+        self.assertTrue(os.access(script_path, os.X_OK), "create_github_issues.sh must be executable")
+
+        with open(script_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn('ISSUES["05"]', content, "ISSUES['05'] not registered in create_github_issues.sh")
+
+        # Test targeted argument "05"
+        proc_05 = subprocess.run(
+            ["bash", script_path, "05"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True
+        )
+        self.assertEqual(proc_05.returncode, 0)
+        self.assertIn("05_interactive_connector_onboarding.md", proc_05.stdout)
+        self.assertIn("feat(onboarding)", proc_05.stdout)
+        self.assertNotIn("01_confluence_connector.md", proc_05.stdout)
+
+        # Test targeted argument "5" (unpadded numeric)
+        proc_5 = subprocess.run(
+            ["bash", script_path, "5"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True
+        )
+        self.assertEqual(proc_5.returncode, 0)
+        self.assertIn("05_interactive_connector_onboarding.md", proc_5.stdout)
+        self.assertNotIn("01_confluence_connector.md", proc_5.stdout)
+
+        # Test invalid argument "99"
+        proc_99 = subprocess.run(
+            ["bash", script_path, "99"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True
+        )
+        self.assertEqual(proc_99.returncode, 1)
+        self.assertIn("Unknown issue key '99'", proc_99.stderr)
 
 
 class TestDataScrubbing(unittest.TestCase):

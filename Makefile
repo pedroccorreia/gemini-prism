@@ -1,4 +1,4 @@
-.PHONY: status plan-foundation apply-foundation dwd-checklist jira-checklist confluence-checklist people-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify test help
+.PHONY: status configure check-inputs enable-connectors plan-foundation apply-foundation dwd-checklist jira-checklist confluence-checklist people-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify test help
 
 WAIT ?= 15m
 
@@ -10,6 +10,9 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  status               - Check deployment status & live phase"
+	@echo "  configure            - Run interactive connector onboarding & configuration wizard"
+	@echo "  check-inputs         - Audit Terraform inputs, missing variables, and Help Center links"
+	@echo "  enable-connectors    - Validate prerequisites and enable planned connectors for Stage 3"
 	@echo "  plan-foundation      - Generate Stage 1 Foundation plan with plan guard"
 	@echo "  apply-foundation     - Apply Stage 1 Foundation plan (0 deletes/replaces)"
 	@echo "  dwd-checklist        - Print Google Workspace Domain-Wide Delegation authorization checklist"
@@ -26,6 +29,15 @@ help:
 
 status:
 	python3 scripts/status.py $(ARGS)
+
+configure:
+	python3 scripts/configure.py $(ARGS)
+
+check-inputs:
+	python3 scripts/configure.py --check $(ARGS)
+
+enable-connectors:
+	python3 scripts/configure.py --enable-connectors $(ARGS)
 
 plan-foundation:
 	@mkdir -p .plans

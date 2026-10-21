@@ -162,6 +162,21 @@ def check_identity(skip_auth_check=False):
     return False, None
 
 
+def _enrich_stage0_interactive(status_dict):
+    """Include interactive_questions in Stage 0 status payload."""
+    if status_dict.get("phase") == 0 and "interactive_questions" not in status_dict:
+        try:
+            from scripts.configure import get_interactive_questions
+            status_dict["interactive_questions"] = get_interactive_questions()
+        except ImportError:
+            try:
+                from configure import get_interactive_questions
+                status_dict["interactive_questions"] = get_interactive_questions()
+            except ImportError:
+                pass
+    return status_dict
+
+
 def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check=False, skip_tools_check=False, deep=False):
     """
     Core phase detection and health assessment logic.
@@ -172,7 +187,7 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
     if not skip_tools_check:
         missing_tools = check_cli_tools()
         if missing_tools:
-            return {
+            return _enrich_stage0_interactive({
                 "phase": 0,
                 "phase_name": PHASES[0],
                 "owner": "human",
@@ -180,12 +195,12 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 "next_action": f"Install required CLI tools: {', '.join(missing_tools)}",
                 "handoff_template": "tools",
                 "exit_code": 1
-            }
+            })
 
     # 2. Identity check
     has_identity, identity_info = check_identity(skip_auth_check)
     if not has_identity:
-        return {
+        return _enrich_stage0_interactive({
             "phase": 0,
             "phase_name": PHASES[0],
             "owner": "human",
@@ -193,35 +208,35 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
             "next_action": "Run 'gcloud auth application-default login' and 'gcloud auth login'",
             "handoff_template": "identity",
             "exit_code": 1
-        }
+        })
 
     # 3. Inputs / tfvars check
     actual_tfvars_path = tfvars_path or os.path.join(workdir, "terraform.tfvars")
     tfvars = parse_tfvars(actual_tfvars_path)
 
     if tfvars is None:
-        return {
+        return _enrich_stage0_interactive({
             "phase": 0,
             "phase_name": PHASES[0],
             "owner": "human",
             "blockers": [f"Configuration file not found: {actual_tfvars_path}"],
-            "next_action": "cp terraform.tfvars.example terraform.tfvars and fill in customer values",
+            "next_action": "Run 'make configure' to launch interactive setup wizard, or 'make check-inputs' to audit variables",
             "handoff_template": "inputs",
             "exit_code": 1
-        }
+        })
 
     required_keys = ["customer_id", "customer_name", "company_domain", "workspace_customer_id", "billing_account"]
     missing_keys = [k for k in required_keys if not tfvars.get(k)]
     if missing_keys:
-        return {
+        return _enrich_stage0_interactive({
             "phase": 0,
             "phase_name": PHASES[0],
             "owner": "human",
             "blockers": [f"Missing required keys in terraform.tfvars: {', '.join(missing_keys)}"],
-            "next_action": f"Configure {', '.join(missing_keys)} in terraform.tfvars",
+            "next_action": f"Run 'make configure' or configure {', '.join(missing_keys)} in terraform.tfvars (run 'make check-inputs' for lookup guides)",
             "handoff_template": "inputs",
             "exit_code": 1
-        }
+        })
 
     # Placeholder detection
     placeholder_keys = []
@@ -231,15 +246,15 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
             placeholder_keys.append(k)
 
     if placeholder_keys:
-        return {
+        return _enrich_stage0_interactive({
             "phase": 0,
             "phase_name": PHASES[0],
             "owner": "human",
             "blockers": [f"Unresolved placeholder values in terraform.tfvars: {', '.join(placeholder_keys)}"],
-            "next_action": f"Replace example placeholders in terraform.tfvars with real customer parameters",
+            "next_action": f"Run 'make configure' to replace example placeholders ({', '.join(placeholder_keys)}) with customer parameters, or run 'make check-inputs'",
             "handoff_template": "inputs",
             "exit_code": 1
-        }
+        })
 
     customer_id = tfvars["customer_id"]
     prefix = tfvars.get("project_id_prefix", "")
@@ -301,17 +316,124 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
     enable_confluence_connector = tfvars.get("enable_confluence_connector", False)
     enable_people_directory_connector = tfvars.get("enable_people_directory_connector", False)
 
-    # If neither connector is enabled, block on Workspace DWD (default flow)
+    # Validate planned_connectors
+    has_explicit_planned = "planned_connectors" in tfvars
+    planned_connectors = tfvars.get("planned_connectors")
+    if planned_connectors is not None:
+        if not isinstance(planned_connectors, list):
+            return {
+                "phase": 2,
+                "phase_name": PHASES[2],
+                "owner": "human",
+                "blockers": ["planned_connectors in terraform.tfvars must be a list of strings"],
+                "next_action": "Run 'make configure' to configure planned_connectors",
+                "handoff_template": "inputs",
+                "exit_code": 1
+            }
+        invalid = [c for c in planned_connectors if c not in ("workspace", "jira", "confluence", "people_directory")]
+        if invalid:
+            return {
+                "phase": 2,
+                "phase_name": PHASES[2],
+                "owner": "human",
+                "blockers": [f"Invalid connector(s) in planned_connectors: {', '.join(invalid)}. Allowed: workspace, jira, confluence, people_directory"],
+                "next_action": "Run 'make configure' to select valid connectors",
+                "handoff_template": "inputs",
+                "exit_code": 1
+            }
+    else:
+        if enable_jira_connector and not enable_connectors and not enable_confluence_connector and not enable_people_directory_connector:
+            planned_connectors = ["jira"]
+        elif enable_confluence_connector and not enable_connectors and not enable_jira_connector and not enable_people_directory_connector:
+            planned_connectors = ["confluence"]
+        else:
+            planned_connectors = ["workspace"]
+
+    # If neither connector is enabled, block on human authorization gate and guide to make enable-connectors
     if not enable_connectors and not enable_jira_connector and not enable_confluence_connector and not enable_people_directory_connector:
-        return {
-            "phase": 2,
-            "phase_name": PHASES[2],
-            "owner": "human",
-            "blockers": ["Domain-Wide Delegation authorization pending in Workspace Admin Console"],
-            "next_action": "make dwd-checklist",
-            "handoff_template": "dwd",
-            "exit_code": 2
-        }
+        if "workspace" in planned_connectors or ("jira" not in planned_connectors and "confluence" not in planned_connectors and "people_directory" not in planned_connectors):
+            return {
+                "phase": 2,
+                "phase_name": PHASES[2],
+                "owner": "human",
+                "blockers": ["Domain-Wide Delegation authorization pending in Workspace Admin Console"],
+                "next_action": "Complete authorizations (run 'make dwd-checklist'), then run 'make enable-connectors'",
+                "handoff_template": "dwd",
+                "exit_code": 2
+            }
+        elif "jira" in planned_connectors:
+            return {
+                "phase": 2,
+                "phase_name": "jira_authorization",
+                "owner": "human",
+                "blockers": ["Atlassian Jira authorization pending in Atlassian Developer Console"],
+                "next_action": "Complete authorizations (run 'make jira-checklist'), then run 'make enable-connectors'",
+                "handoff_template": "jira",
+                "exit_code": 2
+            }
+        elif "confluence" in planned_connectors:
+            return {
+                "phase": 2,
+                "phase_name": "confluence_authorization",
+                "owner": "human",
+                "blockers": ["Atlassian Confluence authorization pending in Atlassian Developer Console"],
+                "next_action": "Complete authorizations (run 'make confluence-checklist'), then run 'make enable-connectors'",
+                "handoff_template": "confluence",
+                "exit_code": 2
+            }
+        else:
+            return {
+                "phase": 2,
+                "phase_name": PHASES[2],
+                "owner": "human",
+                "blockers": ["People Directory authorization pending in Workspace Admin Console"],
+                "next_action": "Complete authorizations (run 'make people-checklist'), then run 'make enable-connectors'",
+                "handoff_template": "dwd",
+                "exit_code": 2
+            }
+
+    # If planned_connectors is explicitly declared, verify all planned connectors are enabled
+    if has_explicit_planned:
+        if "jira" in planned_connectors and not enable_jira_connector:
+            return {
+                "phase": 2,
+                "phase_name": "jira_authorization",
+                "owner": "human",
+                "blockers": ["Planned Jira connector pending authorization / enablement"],
+                "next_action": "Complete authorizations (run 'make jira-checklist'), then run 'make enable-connectors'",
+                "handoff_template": "jira",
+                "exit_code": 2
+            }
+        if "confluence" in planned_connectors and not enable_confluence_connector:
+            return {
+                "phase": 2,
+                "phase_name": "confluence_authorization",
+                "owner": "human",
+                "blockers": ["Planned Confluence connector pending authorization / enablement"],
+                "next_action": "Complete authorizations (run 'make confluence-checklist'), then run 'make enable-connectors'",
+                "handoff_template": "confluence",
+                "exit_code": 2
+            }
+        if "workspace" in planned_connectors and not enable_connectors:
+            return {
+                "phase": 2,
+                "phase_name": PHASES[2],
+                "owner": "human",
+                "blockers": ["Domain-Wide Delegation authorization pending in Workspace Admin Console"],
+                "next_action": "Complete authorizations (run 'make dwd-checklist'), then run 'make enable-connectors'",
+                "handoff_template": "dwd",
+                "exit_code": 2
+            }
+        if "people_directory" in planned_connectors and not enable_people_directory_connector:
+            return {
+                "phase": 2,
+                "phase_name": PHASES[2],
+                "owner": "human",
+                "blockers": ["Planned People Directory connector pending enablement"],
+                "next_action": "Run 'make people-checklist', then run 'make enable-connectors'",
+                "handoff_template": "dwd",
+                "exit_code": 2
+            }
 
     # Jira connector onboarding validation if enabled
     if enable_jira_connector:
@@ -764,6 +886,18 @@ def main():
             "next_action": status_data["next_action"],
             "handoff_template": status_data["handoff_template"]
         }
+        if "interactive_questions" in status_data:
+            output_payload["interactive_questions"] = status_data["interactive_questions"]
+        elif status_data["phase"] == 0:
+            try:
+                from scripts.configure import get_interactive_questions
+                output_payload["interactive_questions"] = get_interactive_questions()
+            except ImportError:
+                try:
+                    from configure import get_interactive_questions
+                    output_payload["interactive_questions"] = get_interactive_questions()
+                except ImportError:
+                    pass
         print(json.dumps(output_payload, indent=2))
     else:
         print_human_table(status_data)

@@ -9,9 +9,10 @@ Execute `make status --json`. Act on `next_action`. Reference the matching stage
 - **MUST**:
   1. Run `make status` before and after every action.
   2. Use `make plan-<stage>` and `make apply-<stage>` (always applies guarded saved plans).
-  3. Run `make licenses-dryrun` before distributing licenses.
-  4. Stop at human gates (`status.py` exit code 2) and post the designated hand-off template.
-  5. Provision all data connectors (Workspace and third-party) exclusively in `FEDERATED` mode (`connector_modes = ["FEDERATED"]`).
+  3. Use `make enable-connectors` to validate prerequisites and activate connectors in Stage 2.
+  4. Run `make licenses-dryrun` before distributing licenses.
+  5. Stop at human gates (`status.py` exit code 2) and post the designated hand-off template.
+  6. Provision all data connectors (Workspace and third-party) exclusively in `FEDERATED` mode (`connector_modes = ["FEDERATED"]`).
 - **MUST NOT**:
   1. Run `terraform destroy` or apply any plan with deletions/replacements.
   2. Modify `.tf` files to bypass guards or remove `deletion_policy = "PREVENT"`.
@@ -19,6 +20,13 @@ Execute `make status --json`. Act on `next_action`. Reference the matching stage
   4. Use `--skip-preflight` or switch GCP identities/credentials.
   5. Commit `terraform.tfvars`, `terraform.tfstate`, or `config/license_allocations.json`.
   6. Provision `DATA_INGESTION` connectors or use `jira_server` / `confluence_server` / `BASIC_AUTH` against Atlassian Cloud (`*.atlassian.net`).
+
+## Cross-Harness Combo-Box Protocol (Stage 0)
+When entering Stage 0 (`make status --json` reports `phase: 0`):
+1. Parse the `interactive_questions` array containing multi-select options and Help Center URLs.
+2. Query the human operator using your harness native combo-box tool (`ask_question`, `AskUserQuestion`).
+3. Apply user selections non-interactively: `python3 scripts/configure.py --apply-json '<json>'`.
+4. Audit remaining variables via `make check-inputs`.
 
 ## Human Gates
 | Stage | Gate Reason | Signal for Resuming | Template |
@@ -32,14 +40,20 @@ Execute `make status --json`. Act on `next_action`. Reference the matching stage
 ## Phase Detection (`make status --json`)
 | Phase | Name | Owner | Condition | Next Action |
 | :---: | :--- | :---: | :--- | :--- |
-| 0 | `preflight_inputs` | Human | Missing tfvars/credentials/state mismatch | Resolve blocker |
+| 0 | `preflight_inputs` | Human | Missing tfvars/credentials/state mismatch | `make configure` or `make check-inputs` |
 | 1 | `foundation_apply` | Agent | `project_ids` absent from state | `make plan-foundation && make apply-foundation` |
-| 2 | `dwd_authorization` | Human | `enable_connectors == false` | `make dwd-checklist` |
+| 2 | `dwd_authorization` | Human | `enable_connectors == false` | `make dwd-checklist (then make enable-connectors)` |
 | 3 | `connectors_and_engines_apply` | Agent | `search_engine_names` absent | `make plan-connectors && make apply-connectors` |
 | 4 | `license_distribution` | Agent | `license_config_names` absent | `make licenses` |
 | 5 | `verification` | Agent | All components present | `make verify` |
 
 ## Hand-off Templates
+### `inputs`
+```text
+ACTION REQUIRED: Customer configuration variables missing or placeholder in terraform.tfvars.
+Run `make configure` for the interactive wizard or `make check-inputs` to view step-by-step lookup guides.
+```
+
 ### `dwd`
 ```text
 ACTION REQUIRED (Workspace Super Admin): Authorize Domain-Wide Delegation in https://admin.google.com/ac/owl/domainwidedelegation.
@@ -104,6 +118,7 @@ Run `gcloud auth application-default login` and `gcloud auth login` with a custo
 - `Makefile`: Unified command surface (`make status`, `make plan-*`, `make apply-*`).
 - `RUNBOOK.md`: Complete human and agent deployment instructions.
 - `main.tf`, `variables.tf`, `outputs.tf`: Core Terraform configuration.
+- `scripts/configure.py`: Interactive connector onboarding wizard and variable audit engine.
 - `scripts/status.py`: Live phase detection engine.
 - `scripts/plan_guard.py`: Destructive change guard for `.tfplan`.
 - `scripts/allocate_licenses.py`: Seat distribution and verification tool.

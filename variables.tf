@@ -76,6 +76,19 @@ variable "sa_email" {
   default     = null
 }
 
+variable "planned_connectors" {
+  type        = list(string)
+  description = "List of enterprise connectors planned for deployment (workspace, jira, confluence, people_directory)"
+  default     = ["workspace"]
+
+  validation {
+    condition = alltrue([
+      for c in var.planned_connectors : contains(["workspace", "jira", "confluence", "people_directory"], c)
+    ])
+    error_message = "Each element of planned_connectors must be one of: 'workspace', 'jira', 'confluence', 'people_directory'."
+  }
+}
+
 variable "workspace_connectors" {
   type        = set(string)
   description = "Set of Google Workspace connector types to provision (e.g. google_mail, google_calendar, google_drive, google_chat)"

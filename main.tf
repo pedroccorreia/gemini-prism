@@ -173,7 +173,111 @@ locals {
     }
   } : {}
 
-  environment_connectors = merge(local.workspace_environment_connectors, local.jira_environment_connectors)
+  # Map user-friendly Slack auth type to canonical Discovery Engine auth_type
+  effective_slack_auth_type = {
+    "OAUTH"      = "OAUTH"
+    "OAUTH2"     = "OAUTH"
+    "BOT_TOKEN"  = "API_TOKEN"
+    "USER_TOKEN" = "API_TOKEN"
+    "API_TOKEN"  = "API_TOKEN"
+  }[var.slack_auth_type]
+
+  effective_slack_team_id = coalesce(
+    trimspace(try(var.slack_auth.team_id, "")),
+    trimspace(try(var.slack_config.team_id, "")),
+    ""
+  )
+
+  effective_slack_token = coalesce(
+    trimspace(try(var.slack_auth.bot_token, "")),
+    trimspace(try(var.slack_auth.user_token, "")),
+    trimspace(try(var.slack_auth.api_token, "")),
+    ""
+  )
+
+  # Default data source version based on auth type: 1 for Bot/API Token ingestion, 3 for OAuth 2.0 federated/actions
+  default_slack_version     = local.effective_slack_auth_type == "API_TOKEN" ? 1 : 3
+  effective_slack_version   = coalesce(var.slack_config.data_source_version, local.default_slack_version)
+  effective_slack_sync_mode = upper(coalesce(var.slack_config.sync_mode, "PERIODIC")) == "INCREMENTAL" ? "PERIODIC" : coalesce(var.slack_config.sync_mode, "PERIODIC")
+
+  slack_entity_params = merge(
+    length(coalesce(var.slack_config.channels_include, [])) > 0 ? {
+      "inclusion_filters" = {
+        "channelId" = var.slack_config.channels_include
+      }
+    } : {},
+    length(coalesce(var.slack_config.channels_exclude, [])) > 0 ? {
+      "exclusion_filters" = {
+        "channelId" = var.slack_config.channels_exclude
+      }
+    } : {},
+    coalesce(var.slack_config.include_private_channels, false) ? {
+      "include_private_channels" = true
+    } : {},
+    coalesce(var.slack_config.include_dms, false) ? {
+      "include_dms" = true
+    } : {
+      "exclude_dms" = true
+    }
+  )
+
+  # Slack Enterprise connector per environment (when enabled)
+  slack_environment_connectors = var.enable_slack_connector ? {
+    for env_key, env_val in local.environments :
+    "${env_key}-slack" => {
+      env_key             = env_key
+      connector           = "slack"
+      data_source         = coalesce(var.slack_config.data_source, "slack")
+      data_source_version = local.effective_slack_version
+      display_name        = "Slack Enterprise"
+      collection_id       = "slack-collection"
+      project_id          = google_project.projects[env_key].project_id
+      entities = [
+        for e in coalesce(var.slack_config.entities, ["channel", "message", "thread", "canvas", "file"]) : {
+          entity_name = e
+          params      = (contains(["channel", "conversation"], e) && length(local.slack_entity_params) > 0) ? jsonencode(local.slack_entity_params) : null
+        }
+      ]
+      connector_modes              = coalesce(var.slack_config.enable_actions, false) ? distinct(concat(coalesce(var.slack_config.connector_modes, ["DATA_INGESTION"]), ["ACTIONS"])) : coalesce(var.slack_config.connector_modes, ["DATA_INGESTION"])
+      sync_mode                    = local.effective_slack_sync_mode
+      refresh_interval             = coalesce(var.slack_config.refresh_interval, "43200s")
+      incremental_refresh_interval = var.slack_config.incremental_refresh_interval
+      static_ip_enabled            = var.slack_config.static_ip_enabled
+      auto_run_disabled            = var.slack_config.auto_run_disabled
+      incremental_sync_disabled    = var.slack_config.incremental_sync_disabled
+      instance_uri                 = coalesce(var.slack_config.instance_uri, "")
+      params = merge(
+        var.slack_config.instance_uri != "" ? { "instance_uri" = var.slack_config.instance_uri } : {},
+        local.effective_slack_team_id != "" ? {
+          "instance_id" = local.effective_slack_team_id
+          "team_id"     = local.effective_slack_team_id
+        } : {},
+        { "auth_type" = local.effective_slack_auth_type },
+        local.effective_slack_token != "" ? {
+          "auth_token" = local.effective_slack_token
+          "bot_token"  = local.effective_slack_token
+        } : {},
+        var.slack_auth.client_id != "" ? { "client_id" = var.slack_auth.client_id } : {},
+        var.slack_auth.client_secret != "" ? { "client_secret" = var.slack_auth.client_secret } : {},
+        var.slack_auth.refresh_token != "" ? { "refresh_token" = var.slack_auth.refresh_token } : {},
+        coalesce(var.slack_config.extra_params, {})
+      )
+      action_params = merge(
+        local.effective_slack_team_id != "" ? { "team_id" = local.effective_slack_team_id } : {},
+        { "auth_type" = "OAUTH" },
+        var.slack_auth.client_id != "" ? { "client_id" = var.slack_auth.client_id } : {},
+        var.slack_auth.client_secret != "" ? { "client_secret" = var.slack_auth.client_secret } : {}
+      )
+      enable_actions  = coalesce(var.slack_config.enable_actions, false)
+      enabled_actions = coalesce(var.slack_config.enabled_actions, [])
+    }
+  } : {}
+
+  environment_connectors = merge(
+    local.workspace_environment_connectors,
+    local.jira_environment_connectors,
+    local.slack_environment_connectors
+  )
 
   # Domain-Wide Delegation OAuth scopes required for Workspace connectors & user directory
   dwd_scopes = [
@@ -309,7 +413,7 @@ resource "google_discovery_engine_data_connector" "connectors" {
   }
 
   dynamic "destination_configs" {
-    for_each = (each.value.instance_uri != "" && (each.value.enable_actions || contains(each.value.connector_modes, "FEDERATED"))) ? [each.value.instance_uri] : []
+    for_each = (each.value.connector != "slack" && each.value.instance_uri != "" && (each.value.enable_actions || contains(each.value.connector_modes, "FEDERATED"))) ? [each.value.instance_uri] : []
     content {
       key = "url"
       destinations {
@@ -343,7 +447,7 @@ resource "google_discovery_engine_data_connector" "connectors" {
 
 # 6. Provision Unified Gemini Enterprise Search App per Customer Environment Project
 resource "google_discovery_engine_search_engine" "engines" {
-  for_each          = (var.enable_connectors || var.enable_jira_connector) ? local.environments : {}
+  for_each          = (var.enable_connectors || var.enable_jira_connector || var.enable_slack_connector) ? local.environments : {}
   project           = google_project.projects[each.key].project_id
   location          = var.location
   collection_id     = "default_collection"
@@ -372,7 +476,7 @@ resource "google_discovery_engine_search_engine" "engines" {
 
 # 7. Grant End-User Search Access Scoped to the Engine
 resource "google_discovery_engine_search_engine_iam_member" "users" {
-  for_each      = (var.enable_connectors || var.enable_jira_connector) ? local.environments : {}
+  for_each      = (var.enable_connectors || var.enable_jira_connector || var.enable_slack_connector) ? local.environments : {}
   project       = google_project.projects[each.key].project_id
   location      = var.location
   collection_id = google_discovery_engine_search_engine.engines[each.key].collection_id
@@ -383,7 +487,7 @@ resource "google_discovery_engine_search_engine_iam_member" "users" {
 
 # 8. Provision Governed Gemini Enterprise Assistant
 resource "google_discovery_engine_assistant" "default" {
-  for_each           = (var.enable_connectors || var.enable_jira_connector) ? local.environments : {}
+  for_each           = (var.enable_connectors || var.enable_jira_connector || var.enable_slack_connector) ? local.environments : {}
   project            = google_project.projects[each.key].project_id
   location           = var.location
   collection_id      = google_discovery_engine_search_engine.engines[each.key].collection_id

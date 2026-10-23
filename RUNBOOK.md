@@ -153,7 +153,11 @@ stateDiagram-v2
    - For OAuth 2.0 (3LO, v3): Register app in [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) with callback URLs `https://vertexaisearch.cloud.google.com/console/oauth/jira_oauth.html` (Ingestion) and `https://vertexaisearch.cloud.google.com/oauth-redirect` (Actions), configure scopes from `jira-checklist`, and export credentials via `export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"..."}'`.
    - For API Token (Basic Auth, v1): Generate API token in Atlassian account security settings and export via `export TF_VAR_jira_auth='{"user_account":"...","api_token":"..."}'`.
    - Update `jira_config.instance_uri` (and optionally `jira_config.instance_id`) in `terraform.tfvars`.
-6. Signal completion by updating `terraform.tfvars`:
+6. If Slack Enterprise is enabled (`enable_slack_connector = true`):
+   - Run `make slack-checklist` to view the Slack workspace URI, `team_id`, OAuth callback URL (`https://vertexaisearch.cloud.google.com/oauth-redirect`), and required scopes (`channels:read`, `channels:history`, `groups:read`, `groups:history`, `files:read`, `users:read`, `users:read.email`).
+   - Create a Slack App at [api.slack.com/apps](https://api.slack.com/apps), configure Bot Token or OAuth 2.0 scopes, and export credentials via `export TF_VAR_slack_auth='{"bot_token":"xoxb-...","team_id":"T01234567"}'` (or `client_id`, `client_secret`, `refresh_token`, `team_id` for OAuth v3).
+   - Update `slack_config.instance_uri` and `slack_config.team_id` in `terraform.tfvars`.
+7. Signal completion by updating `terraform.tfvars`:
    ```hcl
    enable_connectors = true
    ```
@@ -161,18 +165,21 @@ stateDiagram-v2
 **Done when:**
 - `enable_connectors = true` is set in `terraform.tfvars`.
 - If `enable_jira_connector = true`, `jira_config.instance_uri` is non-empty and non-placeholder.
+- If `enable_slack_connector = true`, `slack_config.instance_uri` and `slack_config.team_id` are non-empty and non-placeholder.
 - `make status` returns exit code 0 (`phase: 3, phase_name: "connectors_and_engines_apply"`).
 
 **If it fails:**
 - DWD authorization rejected by Admin Console: Verify executing human is a Workspace Super Admin and use the 21-digit numeric `client_id` from `make dwd-checklist`.
 - Incomplete scopes: Ensure all 9 required scopes are pasted without trailing spaces.
 - Jira OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make jira-checklist`, and credentials in `TF_VAR_jira_auth` have access to the target Jira Cloud instance.
+- Slack Bot/OAuth rejection: Verify Slack App scopes match `make slack-checklist`, and credentials in `TF_VAR_slack_auth` are valid for the target `team_id`.
 
 **Checklist:**
 - [ ] Retrieved 21-digit numeric `client_id`, service agent email, and scope CSV via `make dwd-checklist`
 - [ ] Authorized DWD client for each environment in Google Workspace Admin Console
 - [ ] Allowed GCP projects under Google Cloud Core Services
 - [ ] Configured Jira OAuth app / API token via `make jira-checklist` (if Jira enabled)
+- [ ] Configured Slack App Bot Token / OAuth credentials via `make slack-checklist` (if Slack enabled)
 - [ ] Flipped `enable_connectors = true` in `terraform.tfvars`
 
 ---

@@ -31,6 +31,7 @@ It deploys:
 - **User Store with Auto-Registration** (`google_discovery_engine_user_store`).
 - **Federated Workspace Connectors** (`google_mail`, `google_calendar`, `google_drive`, `google_chat`).
 - **Atlassian Jira Data Connector** with multi-entity data stores (`project`, `issue`, `attachment`, `comment`, `worklog`) and optional Action/BAP integration.
+- **Slack Enterprise Data Connector** (`slack-collection`) indexing channels, messages, threads, canvases, and files with channel allowlist/blocklist privacy controls.
 - **Unified Intranet Search App & Governed Assistant** (`google_discovery_engine_search_engine`, `google_discovery_engine_assistant`).
 - **Automated Seat Distribution & Verification** tooling via `Makefile`.
 - **Planned Enterprise Connectors Roadmap:** Prioritized pipeline tracking [Confluence (P1), Slack (P2), HubSpot (P3), and People Directory (P4)](docs/CONNECTORS_ROADMAP.md).
@@ -191,6 +192,7 @@ make plan-foundation   # Stage 1: Generate foundation plan with safety guard
 make apply-foundation  # Stage 1: Apply foundation infrastructure
 make dwd-checklist     # Stage 2: Display Workspace DWD authorization details
 make jira-checklist    # Stage 2: Display Atlassian Jira authorization details
+make slack-checklist   # Stage 2: Display Slack Enterprise authorization details
 make plan-connectors   # Stage 3: Generate connectors plan with safety guard
 make apply-connectors  # Stage 3: Apply connectors, engines & assistants
 make licenses-dryrun   # Stage 4: Verify seat distribution preflight assertions

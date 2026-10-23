@@ -55,3 +55,31 @@ jira_config = {
 # export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"..."}'  # for OAUTH (v3)
 # or
 # export TF_VAR_jira_auth='{"user_account":"user@example.com","api_token":"..."}'  # for BASIC_AUTH / API_TOKEN (v1)
+
+# Slack Enterprise Connector (optional)
+enable_slack_connector = false
+slack_auth_type        = "BOT_TOKEN"
+
+slack_config = {
+  instance_uri                 = "https://example.slack.com"
+  team_id                      = "T00000000" # Slack Workspace ID (T...) or Enterprise Grid ID (E...)
+  data_source                  = "slack"
+  data_source_version          = 1
+  sync_mode                    = "PERIODIC"
+  refresh_interval             = "43200s"
+  incremental_refresh_interval = "1800s"
+  entities                     = ["channel", "message", "thread", "canvas", "file"]
+  channels_include             = []
+  channels_exclude             = []
+  include_private_channels     = false
+  include_dms                  = false
+  static_ip_enabled            = false
+  enable_actions               = false
+  enabled_actions              = ["slack_send_message", "slack_schedule_message", "slack_create_canvas", "slack_send_message_draft"]
+}
+
+# Note: Sensitive Slack credentials should be passed via TF_VAR_slack_auth environment variable, e.g.:
+# export TF_VAR_slack_auth='{"bot_token":"xoxb-...","team_id":"T01234567"}'  # for BOT_TOKEN / API_TOKEN (v1)
+# or
+# export TF_VAR_slack_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","team_id":"T01234567"}'  # for OAUTH (v3)
+

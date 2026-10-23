@@ -97,3 +97,49 @@ output "jira_checklist" {
     }
   }
 }
+
+output "slack_checklist" {
+  description = "Slack Enterprise connector configuration and onboarding checklist per environment"
+  value = {
+    for k, v in local.environments : k => {
+      project_id              = google_project.projects[k].project_id
+      instance_uri            = coalesce(var.slack_config.instance_uri, "")
+      team_id                 = local.effective_slack_team_id
+      auth_type               = local.effective_slack_auth_type
+      data_source_version     = local.effective_slack_version
+      oauth_callback_url      = "https://vertexaisearch.cloud.google.com/oauth-redirect"
+      slack_api_console_url   = "https://api.slack.com/apps"
+      slack_admin_console_url = "https://app.slack.com/manage"
+      oauth_scopes = coalesce(var.slack_config.enable_actions, false) ? [
+        "channels:read",
+        "channels:history",
+        "groups:read",
+        "groups:history",
+        "files:read",
+        "users:read",
+        "users:read.email",
+        "canvases:read",
+        "reactions:read",
+        "team:read",
+        "chat:write",
+        "canvases:write",
+        "reactions:write"
+        ] : [
+        "channels:read",
+        "channels:history",
+        "groups:read",
+        "groups:history",
+        "files:read",
+        "users:read",
+        "users:read.email"
+      ]
+      entities                 = coalesce(var.slack_config.entities, ["channel", "message", "thread", "canvas", "file"])
+      channels_include         = coalesce(var.slack_config.channels_include, [])
+      channels_exclude         = coalesce(var.slack_config.channels_exclude, [])
+      include_private_channels = coalesce(var.slack_config.include_private_channels, false)
+      static_ip_addresses      = contains(keys(google_discovery_engine_data_connector.connectors), "${k}-slack") ? google_discovery_engine_data_connector.connectors["${k}-slack"].static_ip_addresses : []
+      action_instructions      = local.effective_slack_auth_type == "OAUTH" ? "Create a Slack App at https://api.slack.com/apps with OAuth redirect URL https://vertexaisearch.cloud.google.com/oauth-redirect, configure the required OAuth scopes, and supply client_id, client_secret, refresh_token, and team_id via TF_VAR_slack_auth." : "Create a Slack App at https://api.slack.com/apps, configure Bot Token Scopes (channels:read, channels:history, groups:read, groups:history, files:read, users:read, users:read.email), install to workspace, and supply bot_token (xoxb-...) and team_id (T... or E...) via TF_VAR_slack_auth."
+    }
+  }
+}
+

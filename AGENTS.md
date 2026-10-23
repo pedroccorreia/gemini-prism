@@ -24,6 +24,7 @@ Execute `make status --json`. Act on `next_action`. Reference the matching stage
 | **Stage 0** | Missing inputs or invalid credentials | Valid `terraform.tfvars` / active ADC | `inputs` / `identity` |
 | **Stage 2** | Domain-Wide Delegation authorization | `enable_connectors = true` in tfvars | `dwd` |
 | **Stage 2** | Atlassian Jira authorization / URI missing | Valid Jira URI & credentials configured | `jira` |
+| **Stage 2** | Slack Enterprise authorization / URI missing | Valid Slack URI / `team_id` & credentials configured | `slack` |
 | **Stage 4** | Missing billing subscription IDs | Subscription IDs set in tfvars | `subscription` |
 
 ## Phase Detection (`make status --json`)
@@ -49,6 +50,13 @@ Allow GCP projects in Security > API controls > Google Cloud Core Services. Set 
 ACTION REQUIRED (Atlassian Admin): Configure Atlassian Jira authorization.
 Run `make jira-checklist` to view the OAuth 2.0 (3LO) callback URL, required scopes, and instance URI.
 Configure Atlassian Developer Console app or API token, set TF_VAR_jira_auth, and update jira_config.instance_uri in terraform.tfvars.
+```
+
+### `slack`
+```text
+ACTION REQUIRED (Slack Admin): Configure Slack Enterprise authorization.
+Run `make slack-checklist` to view the OAuth callback URL, required scopes, and target entities.
+Create a Slack App in https://api.slack.com/apps, set TF_VAR_slack_auth, and update slack_config.instance_uri and slack_config.team_id in terraform.tfvars.
 ```
 
 ### `permissions`
@@ -82,6 +90,7 @@ Run `gcloud auth application-default login` and `gcloud auth login` with a custo
 | `google_cloud_identity_group: 403` | Missing Groups Admin permission | Post `permissions` template (requires Workspace Groups Admin) |
 | `connectors: PERMISSION_DENIED` | DWD token propagation latency | Wait 5 minutes and retry `make apply-connectors` |
 | `jira: 401/403/UNAUTHORIZED` | Invalid Jira credentials or scopes | Post `jira` template; verify `TF_VAR_jira_auth` |
+| `slack: 401/403/invalid_auth` | Invalid Slack Bot/OAuth credentials or scopes | Post `slack` template; verify `TF_VAR_slack_auth` |
 | `assistant: 409 ALREADY_EXISTS` | Engine auto-creates `default_assistant` | Import into state before `make apply-connectors` |
 | `missing license_config_id` | Console only displays Subscription ID | Run `python3 scripts/allocate_licenses.py --discover` |
 | `distributeLicenseConfig: Insufficient` | Billing pool out of seats | Increase seats on Billing Account |

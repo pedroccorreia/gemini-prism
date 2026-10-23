@@ -186,3 +186,67 @@ variable "jira_config" {
     error_message = "jira_config.data_source must be 'jira' or 'jira_server'."
   }
 }
+
+variable "enable_slack_connector" {
+  type        = bool
+  description = "Whether to provision the Slack Enterprise Discovery Engine data connector per environment. Set to true after Slack OAuth/Bot credentials are configured."
+  default     = false
+}
+
+variable "slack_auth_type" {
+  type        = string
+  description = "Authentication method for Slack connector: 'BOT_TOKEN' (or 'API_TOKEN' / 'USER_TOKEN') for v1 ingestion, or 'OAUTH' (or 'OAUTH2') for v3 federated/actions"
+  default     = "BOT_TOKEN"
+
+  validation {
+    condition     = contains(["OAUTH", "OAUTH2", "BOT_TOKEN", "USER_TOKEN", "API_TOKEN"], var.slack_auth_type)
+    error_message = "slack_auth_type must be one of 'OAUTH', 'OAUTH2', 'BOT_TOKEN', 'USER_TOKEN', or 'API_TOKEN'."
+  }
+}
+
+variable "slack_auth" {
+  type = object({
+    bot_token     = optional(string, "")
+    user_token    = optional(string, "")
+    api_token     = optional(string, "")
+    client_id     = optional(string, "")
+    client_secret = optional(string, "")
+    refresh_token = optional(string, "")
+    team_id       = optional(string, "")
+  })
+  description = "Sensitive authentication credentials for Slack connector (pass via TF_VAR_slack_auth environment variable)"
+  default     = {}
+  sensitive   = true
+}
+
+variable "slack_config" {
+  type = object({
+    instance_uri                 = optional(string, "")
+    team_id                      = optional(string, "")
+    data_source                  = optional(string, "slack")
+    data_source_version          = optional(number, null)
+    connector_modes              = optional(list(string), ["DATA_INGESTION"])
+    sync_mode                    = optional(string, "PERIODIC")
+    refresh_interval             = optional(string, "43200s")
+    incremental_refresh_interval = optional(string, "1800s")
+    entities                     = optional(list(string), ["channel", "message", "thread", "canvas", "file"])
+    channels_include             = optional(list(string), [])
+    channels_exclude             = optional(list(string), [])
+    include_private_channels     = optional(bool, false)
+    include_dms                  = optional(bool, false)
+    static_ip_enabled            = optional(bool, false)
+    enable_actions               = optional(bool, false)
+    enabled_actions              = optional(list(string), ["slack_send_message", "slack_schedule_message", "slack_create_canvas", "slack_send_message_draft"])
+    auto_run_disabled            = optional(bool, false)
+    incremental_sync_disabled    = optional(bool, false)
+    extra_params                 = optional(map(string), {})
+  })
+  description = "Configuration parameters for the Slack Enterprise data connector"
+  default     = {}
+
+  validation {
+    condition     = coalesce(var.slack_config.data_source, "slack") == "slack"
+    error_message = "slack_config.data_source must be 'slack'."
+  }
+}
+

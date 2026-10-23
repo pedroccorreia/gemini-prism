@@ -1,8 +1,5 @@
 .PHONY: status configure check-inputs enable-connectors plan-foundation apply-foundation dwd-checklist jira-checklist confluence-checklist people-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify test help
 
-export PATH := /opt/homebrew/bin:/usr/local/bin:$(PATH)
-SHELL := /bin/bash
-
 WAIT ?= 15m
 
 help:
@@ -42,16 +39,14 @@ check-inputs:
 enable-connectors:
 	python3 scripts/configure.py --enable-connectors $(ARGS)
 
-TERRAFORM ?= $(shell PATH="/opt/homebrew/bin:/usr/local/bin:$(PATH)" which terraform 2>/dev/null || echo terraform)
-
 plan-foundation:
 	@mkdir -p .plans
-	$(TERRAFORM) plan -input=false -var="enable_connectors=false" -var="enable_jira_connector=false" -var="enable_confluence_connector=false" -var="enable_people_directory_connector=false" -out=.plans/foundation.tfplan
+	terraform plan -input=false -var="enable_connectors=false" -var="enable_jira_connector=false" -var="enable_confluence_connector=false" -var="enable_people_directory_connector=false" -out=.plans/foundation.tfplan
 	python3 scripts/plan_guard.py .plans/foundation.tfplan
 
 apply-foundation:
 	python3 scripts/plan_guard.py .plans/foundation.tfplan
-	$(TERRAFORM) apply -input=false .plans/foundation.tfplan
+	terraform apply -input=false .plans/foundation.tfplan
 
 dwd-checklist:
 	@python3 scripts/status.py --dwd-checklist
@@ -71,12 +66,12 @@ hubspot-checklist:
 
 plan-connectors:
 	@mkdir -p .plans
-	$(TERRAFORM) plan -input=false -out=.plans/connectors.tfplan
+	terraform plan -input=false -out=.plans/connectors.tfplan
 	python3 scripts/plan_guard.py .plans/connectors.tfplan
 
 apply-connectors:
 	python3 scripts/plan_guard.py .plans/connectors.tfplan
-	$(TERRAFORM) apply -input=false .plans/connectors.tfplan
+	terraform apply -input=false .plans/connectors.tfplan
 
 licenses-dryrun:
 	python3 scripts/allocate_licenses.py --distribute --dry-run
@@ -92,5 +87,5 @@ verify:
 
 test:
 	python3 scripts/test_red.py
-	$(TERRAFORM) fmt -check
-	$(TERRAFORM) validate
+	terraform fmt -check
+	terraform validate

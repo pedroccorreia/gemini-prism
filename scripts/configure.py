@@ -190,6 +190,17 @@ VARIABLE_METADATA = {
         "required_roles": ["Atlassian Site Administrator"],
         "help_center_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud",
     },
+    "hubspot_auth": {
+        "name": "hubspot_auth",
+        "title": "HubSpot Service Key Credentials",
+        "description": "HubSpot Private App Access Token / Service Key (oauth_access_token)",
+        "connector": "hubspot",
+        "where_to_get": "HubSpot Settings > Development > Keys > Service Keys (or Private Apps > Auth).",
+        "admin_url": "https://app.hubspot.com",
+        "lookup_command": "echo 'export TF_VAR_hubspot_auth=\\'{\"oauth_access_token\":\"<service_key>\"}\\''",
+        "required_roles": ["HubSpot Super Admin"],
+        "help_center_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
+    },
 }
 
 
@@ -444,10 +455,43 @@ def audit_inputs(tfvars=None, planned_connectors=None, workdir="."):
         else:
             configured_variables["jira_auth"] = "********"
 
+    # 3. HubSpot variables if planned
+    if "hubspot" in planned_connectors:
+        has_hubspot_cred = False
+        hubspot_auth_env = os.environ.get("TF_VAR_hubspot_auth")
+        if hubspot_auth_env:
+            try:
+                env_obj = json.loads(hubspot_auth_env) if isinstance(hubspot_auth_env, str) and hubspot_auth_env.startswith("{") else {}
+                if any(env_obj.get(k) for k in ("oauth_access_token", "private_app_access_token", "api_token", "bearer_token")):
+                    has_hubspot_cred = True
+            except Exception:
+                pass
+        if not has_hubspot_cred:
+            hubspot_auth_tfvar = tfvars.get("hubspot_auth", {})
+            if isinstance(hubspot_auth_tfvar, dict) and any(hubspot_auth_tfvar.get(k) for k in ("oauth_access_token", "private_app_access_token", "api_token", "bearer_token")):
+                has_hubspot_cred = True
+
+        meta_auth = VARIABLE_METADATA.get("hubspot_auth")
+        if meta_auth and not has_hubspot_cred:
+            missing_variables.append({
+                "name": "hubspot_auth",
+                "description": meta_auth["description"],
+                "connector": meta_auth["connector"],
+                "where_to_get": meta_auth["where_to_get"],
+                "admin_url": meta_auth["admin_url"],
+                "lookup_command": meta_auth["lookup_command"],
+                "required_roles": meta_auth["required_roles"],
+                "required_iam_roles": meta_auth["required_roles"],
+                "help_center_url": meta_auth["help_center_url"],
+                "help_url": meta_auth["help_center_url"],
+            })
+        elif has_hubspot_cred:
+            configured_variables["hubspot_auth"] = "********"
+
     # Add other configured variables from tfvars
     for k, v in tfvars.items():
         if k not in configured_variables and not is_placeholder(v):
-            if k not in ["jira_config", "people_directory_config"]:
+            if k not in ["jira_config", "people_directory_config", "hubspot_config"]:
                 configured_variables[k] = v
 
     status = "ok" if not missing_variables else "missing_variables"
@@ -970,7 +1014,7 @@ def main():
     parser.add_argument("--check", action="store_true", help="Audit variables against planned connectors.")
     parser.add_argument("--json", action="store_true", help="Output audit or operation result in JSON format.")
     parser.add_argument("--apply-json", help="JSON string containing configuration to apply non-interactively.")
-    parser.add_argument("--connectors", help="Comma-separated list of planned connectors (workspace,jira,people_directory).")
+    parser.add_argument("--connectors", help="Comma-separated list of planned connectors (workspace,jira,confluence,people_directory,hubspot).")
     parser.add_argument("--set", action="append", default=[], help="Set variable key=value (can be used multiple times).")
     parser.add_argument("--enable-connectors", action="store_true", help="Stage 2 helper: Validate prerequisites and flip enable_* = true.")
     parser.add_argument("--workdir", default=".", help="Root directory of Terraform configuration.")

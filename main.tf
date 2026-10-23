@@ -469,7 +469,7 @@ resource "google_project" "projects" {
   folder_id       = local.effective_folder_id
   org_id          = local.effective_org_id
   billing_account = var.billing_account
-  deletion_policy = contains(["prod", "production", "ge-prism"], lower(each.key)) ? "PREVENT" : "DELETE"
+  deletion_policy = contains(["prod", "production"], lower(each.key)) ? "PREVENT" : "DELETE"
 }
 
 # 1. Enable GCP Services per Customer Environment Project

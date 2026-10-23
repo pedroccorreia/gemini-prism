@@ -11,10 +11,6 @@ import os
 import subprocess
 import sys
 
-for _p in ["/opt/homebrew/bin", "/usr/local/bin"]:
-    if os.path.exists(_p) and _p not in os.environ.get("PATH", ""):
-        os.environ["PATH"] = f"{_p}:{os.environ.get('PATH', '')}"
-
 
 def parse_plan(plan_path, json_file=None):
     """

@@ -172,7 +172,7 @@ stateDiagram-v2
    - People Directory reuses the DWD authorization above; ensure all Directory scopes (`user.readonly`, `orgunit.readonly`, `userschema.readonly`, `directory.readonly`) are authorized.
 8. If HubSpot is planned (`"hubspot"` in `planned_connectors` or `enable_hubspot_connector = true`):
    - Run `make hubspot-checklist` to view connector configuration and target CRM entities (`contact`, `company`, `deal`, `ticket`).
-   - Create a Private App in HubSpot (`https://app.hubspot.com`), grant read scopes, and supply the service key Bearer token via `export TF_VAR_hubspot_auth='{"api_token":"pat-..."}'`.
+   - Create a service key in HubSpot (`https://app.hubspot.com`), grant read scopes, and supply the service key Bearer token via `export TF_VAR_hubspot_auth='{"api_token":"pat-..."}'`.
    - Ensure `connector_modes = ["FEDERATED"]` is configured in `hubspot_config`.
 9. Enable planned connectors via Stage 2 Enablement Helper:
    ```bash
@@ -193,7 +193,7 @@ stateDiagram-v2
 - Incomplete scopes: Ensure all 11 required scopes are pasted without trailing spaces.
 - Jira OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make jira-checklist`, and credentials in `TF_VAR_jira_auth` have access to the target Jira Cloud instance.
 - Confluence OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make confluence-checklist`, and credentials in `TF_VAR_confluence_auth` (or fallback `TF_VAR_jira_auth`) have access to the target Confluence Cloud instance.
-- HubSpot token rejection: Verify HubSpot Private App Service Key has required scopes and is exported via `TF_VAR_hubspot_auth`.
+- HubSpot token rejection: Verify HubSpot Service Key has required scopes and is exported via `TF_VAR_hubspot_auth`.
 - Enablement helper reports missing prerequisites: Run `make check-inputs` to identify unresolved variables and consult the Help Center reference table below.
 
 ### Connector Help Center Reference Table
@@ -204,7 +204,7 @@ stateDiagram-v2
 | **Atlassian Jira Cloud** | `FEDERATED` | [Jira Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/)<br/>[Atlassian Admin Console](https://admin.atlassian.com) | Atlassian Org Admin / Site Admin<br/>OAuth 2.0 (3LO) App / Token (`TF_VAR_jira_auth`) |
 | **Atlassian Confluence** | `FEDERATED` | [Confluence Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) | Atlassian Org Admin / Site Admin<br/>OAuth 2.0 (3LO) or Shared Jira credentials |
 | **Google People Directory** | `DATA_INGESTION` (Incremental) | [Google Directory API Guide](https://developers.google.com/admin-sdk/directory/v1/guides)<br/>[Cloud Identity Docs](https://cloud.google.com/identity/docs/) | [Workspace DWD Console](https://admin.google.com/ac/owl/domainwidedelegation) | Google Workspace Super Admin<br/>Service Agent DWD (0 additional credentials) |
-| **HubSpot** | `FEDERATED` | [HubSpot Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot) | [HubSpot App Settings](https://app.hubspot.com) | HubSpot Super Admin<br/>Private App Service Key / Bearer Token (`TF_VAR_hubspot_auth`) |
+| **HubSpot** | `FEDERATED` | [HubSpot Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot) | [HubSpot App Settings](https://app.hubspot.com) | HubSpot Super Admin<br/>Service Key / Bearer Token (`TF_VAR_hubspot_auth`) |
 
 **Checklist:**
 - [ ] Retrieved 21-digit numeric `client_id`, service agent email, and scope CSV via `make dwd-checklist`
@@ -213,7 +213,7 @@ stateDiagram-v2
 - [ ] Configured Jira OAuth app / API token via `make jira-checklist` (if Jira planned)
 - [ ] Configured Confluence OAuth app / credentials via `make confluence-checklist` (if Confluence planned)
 - [ ] Inspected People Directory settings via `make people-checklist` (if People Directory planned)
-- [ ] Configured HubSpot Private App service key via `make hubspot-checklist` (if HubSpot planned)
+- [ ] Configured HubSpot service key via `make hubspot-checklist` (if HubSpot planned)
 - [ ] Validated prerequisites and enabled planned connectors via `make enable-connectors` (or flipped `enable_* = true` in `terraform.tfvars`)
 
 ---

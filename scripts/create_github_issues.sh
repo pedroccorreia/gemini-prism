@@ -14,23 +14,12 @@ echo "  Prism Connector Feature Requests — GitHub Issue Publisher"
 echo "  Target Repository: ${REPO}"
 echo "================================================================="
 
-get_issue() {
-  case "$1" in
-    "01") echo "feat(connector): Support Atlassian Confluence Data Connector|enhancement,connector,priority:p1,atlassian|${ISSUES_DIR}/01_confluence_connector.md" ;;
-    "02") echo "feat(connector): Support Slack Enterprise Data Connector|enhancement,connector,priority:p2,collaboration|${ISSUES_DIR}/02_slack_connector.md" ;;
-    "03") echo "feat(connector): Support HubSpot CRM Data Connector|enhancement,connector,priority:p3,crm|${ISSUES_DIR}/03_hubspot_connector.md" ;;
-    "04") echo "feat(connector): Support Google Cloud Identity / Workspace People Directory Connector|enhancement,connector,priority:p4,google-workspace,identity|${ISSUES_DIR}/04_people_directory_connector.md" ;;
-    "05") echo "feat(onboarding): Interactive Connector Onboarding Wizard & Input Variable Configuration Engine|enhancement,onboarding,cli,wizard,priority:p0|${ISSUES_DIR}/05_interactive_connector_onboarding.md" ;;
-    *) echo "" ;;
-  esac
-}
-
-# Compatibility definitions for tests and Bash 4+:
-# ISSUES["01"]="feat(connector): Support Atlassian Confluence Data Connector|enhancement,connector,priority:p1,atlassian|${ISSUES_DIR}/01_confluence_connector.md"
-# ISSUES["02"]="feat(connector): Support Slack Enterprise Data Connector|enhancement,connector,priority:p2,collaboration|${ISSUES_DIR}/02_slack_connector.md"
-# ISSUES["03"]="feat(connector): Support HubSpot CRM Data Connector|enhancement,connector,priority:p3,crm|${ISSUES_DIR}/03_hubspot_connector.md"
-# ISSUES["04"]="feat(connector): Support Google Cloud Identity / Workspace People Directory Connector|enhancement,connector,priority:p4,google-workspace,identity|${ISSUES_DIR}/04_people_directory_connector.md"
-# ISSUES["05"]="feat(onboarding): Interactive Connector Onboarding Wizard & Input Variable Configuration Engine|enhancement,onboarding,cli,wizard,priority:p0|${ISSUES_DIR}/05_interactive_connector_onboarding.md"
+declare -A ISSUES
+ISSUES["01"]="feat(connector): Support Atlassian Confluence Data Connector|enhancement,connector,priority:p1,atlassian|${ISSUES_DIR}/01_confluence_connector.md"
+ISSUES["02"]="feat(connector): Support Slack Enterprise Data Connector|enhancement,connector,priority:p2,collaboration|${ISSUES_DIR}/02_slack_connector.md"
+ISSUES["03"]="feat(connector): Support HubSpot CRM Data Connector|enhancement,connector,priority:p3,crm|${ISSUES_DIR}/03_hubspot_connector.md"
+ISSUES["04"]="feat(connector): Support Google Cloud Identity / Workspace People Directory Connector|enhancement,connector,priority:p4,google-workspace,identity|${ISSUES_DIR}/04_people_directory_connector.md"
+ISSUES["05"]="feat(onboarding): Interactive Connector Onboarding Wizard & Input Variable Configuration Engine|enhancement,onboarding,cli,wizard,priority:p0|${ISSUES_DIR}/05_interactive_connector_onboarding.md"
 
 TARGET_ARG="${1:-}"
 if [ -n "${TARGET_ARG}" ]; then
@@ -39,8 +28,7 @@ if [ -n "${TARGET_ARG}" ]; then
   else
     KEY="${TARGET_ARG}"
   fi
-  ISSUE_VAL="$(get_issue "${KEY}")"
-  if [ -z "${ISSUE_VAL}" ]; then
+  if [ -z "${ISSUES[${KEY}]:-}" ]; then
     echo "Error: Unknown issue key '${TARGET_ARG}'. Available keys: 01, 02, 03, 04, 05" >&2
     exit 1
   fi
@@ -128,7 +116,7 @@ echo ""
 echo "Or create directly using GitHub CLI:"
 echo "-----------------------------------------------------------------"
 for key in "${TARGET_KEYS[@]}"; do
-  IFS="|" read -r title labels file <<< "$(get_issue "$key")"
+  IFS="|" read -r title labels file <<< "${ISSUES[$key]}"
   echo "gh issue create --repo ${REPO} --title \"${title}\" --body-file \"${file}\" --label \"${labels}\""
 done
 echo "-----------------------------------------------------------------"

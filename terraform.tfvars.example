@@ -108,5 +108,5 @@ hubspot_config = {
 }
 
 # Note: Sensitive credentials should be passed via TF_VAR_hubspot_auth environment variable, e.g.:
-# export TF_VAR_hubspot_auth='{"api_token":"pat-na1-xxxx-xxxx"}'
+# export TF_VAR_hubspot_auth='{"oauth_access_token":"pat-na1-xxxx-xxxx"}'
 

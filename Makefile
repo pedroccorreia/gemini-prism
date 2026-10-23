@@ -42,14 +42,16 @@ check-inputs:
 enable-connectors:
 	python3 scripts/configure.py --enable-connectors $(ARGS)
 
+TERRAFORM ?= $(shell PATH="/opt/homebrew/bin:/usr/local/bin:$(PATH)" which terraform 2>/dev/null || echo terraform)
+
 plan-foundation:
 	@mkdir -p .plans
-	terraform plan -input=false -var="enable_connectors=false" -var="enable_jira_connector=false" -var="enable_confluence_connector=false" -var="enable_people_directory_connector=false" -out=.plans/foundation.tfplan
+	$(TERRAFORM) plan -input=false -var="enable_connectors=false" -var="enable_jira_connector=false" -var="enable_confluence_connector=false" -var="enable_people_directory_connector=false" -out=.plans/foundation.tfplan
 	python3 scripts/plan_guard.py .plans/foundation.tfplan
 
 apply-foundation:
 	python3 scripts/plan_guard.py .plans/foundation.tfplan
-	terraform apply -input=false .plans/foundation.tfplan
+	$(TERRAFORM) apply -input=false .plans/foundation.tfplan
 
 dwd-checklist:
 	@python3 scripts/status.py --dwd-checklist
@@ -69,12 +71,12 @@ hubspot-checklist:
 
 plan-connectors:
 	@mkdir -p .plans
-	terraform plan -input=false -out=.plans/connectors.tfplan
+	$(TERRAFORM) plan -input=false -out=.plans/connectors.tfplan
 	python3 scripts/plan_guard.py .plans/connectors.tfplan
 
 apply-connectors:
 	python3 scripts/plan_guard.py .plans/connectors.tfplan
-	terraform apply -input=false .plans/connectors.tfplan
+	$(TERRAFORM) apply -input=false .plans/connectors.tfplan
 
 licenses-dryrun:
 	python3 scripts/allocate_licenses.py --distribute --dry-run
@@ -90,5 +92,5 @@ verify:
 
 test:
 	python3 scripts/test_red.py
-	terraform fmt -check
-	terraform validate
+	$(TERRAFORM) fmt -check
+	$(TERRAFORM) validate

@@ -560,13 +560,13 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
         if hubspot_auth_env:
             try:
                 env_obj = json.loads(hubspot_auth_env) if isinstance(hubspot_auth_env, str) and hubspot_auth_env.startswith("{") else {}
-                if any(env_obj.get(k) for k in ("private_app_access_token", "api_token", "bearer_token")):
+                if any(env_obj.get(k) for k in ("oauth_access_token", "private_app_access_token", "api_token", "bearer_token")):
                     has_token = True
             except Exception:
                 pass
         if not has_token:
             hubspot_auth_tfvar = tfvars.get("hubspot_auth", {})
-            if isinstance(hubspot_auth_tfvar, dict) and any(hubspot_auth_tfvar.get(k) for k in ("private_app_access_token", "api_token", "bearer_token")):
+            if isinstance(hubspot_auth_tfvar, dict) and any(hubspot_auth_tfvar.get(k) for k in ("oauth_access_token", "private_app_access_token", "api_token", "bearer_token")):
                 has_token = True
         if not has_token:
             return {

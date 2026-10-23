@@ -332,6 +332,7 @@ variable "enable_hubspot_connector" {
 
 variable "hubspot_auth" {
   type = object({
+    oauth_access_token       = optional(string, "")
     api_token                = optional(string, "")
     bearer_token             = optional(string, "")
     private_app_access_token = optional(string, "")

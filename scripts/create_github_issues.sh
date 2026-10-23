@@ -39,7 +39,8 @@ if [ -n "${TARGET_ARG}" ]; then
   else
     KEY="${TARGET_ARG}"
   fi
-  if [ -z "${ISSUES[${KEY}]:-}" ]; then
+  ISSUE_VAL="$(get_issue "${KEY}")"
+  if [ -z "${ISSUE_VAL}" ]; then
     echo "Error: Unknown issue key '${TARGET_ARG}'. Available keys: 01, 02, 03, 04, 05" >&2
     exit 1
   fi
@@ -127,7 +128,7 @@ echo ""
 echo "Or create directly using GitHub CLI:"
 echo "-----------------------------------------------------------------"
 for key in "${TARGET_KEYS[@]}"; do
-  IFS="|" read -r title labels file <<< "${ISSUES[$key]}"
+  IFS="|" read -r title labels file <<< "$(get_issue "$key")"
   echo "gh issue create --repo ${REPO} --title \"${title}\" --body-file \"${file}\" --label \"${labels}\""
 done
 echo "-----------------------------------------------------------------"

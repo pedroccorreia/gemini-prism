@@ -389,6 +389,7 @@ locals {
   }
 
   effective_hubspot_token = try(coalesce(
+    trimspace(nonsensitive(try(var.hubspot_auth.oauth_access_token, ""))),
     trimspace(nonsensitive(try(var.hubspot_auth.private_app_access_token, ""))),
     trimspace(nonsensitive(try(var.hubspot_auth.api_token, ""))),
     trimspace(nonsensitive(try(var.hubspot_auth.bearer_token, "")))
@@ -419,12 +420,8 @@ locals {
       incremental_sync_disabled    = var.hubspot_config.incremental_sync_disabled
       instance_uri                 = coalesce(var.hubspot_config.instance_uri, "https://api.hubapi.com")
       params = merge(
-        { "auth_type" = "BEARER_TOKEN" },
         local.effective_hubspot_token != "" ? {
-          "private_app_access_token" = local.effective_hubspot_token,
-          "Private App Access Token" = local.effective_hubspot_token,
-          "bearer_token"             = local.effective_hubspot_token,
-          "api_token"                = local.effective_hubspot_token
+          "oauth_access_token" = local.effective_hubspot_token
         } : {},
         coalesce(var.hubspot_config.extra_params, {})
       )

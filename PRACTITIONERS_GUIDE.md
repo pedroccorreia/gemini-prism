@@ -128,12 +128,12 @@ Google Workspace requires two distinct administrative actions: one **before Stag
 | **Super Administrator** (Domain-Wide Delegation) | [admin.google.com/ac/owl/domainwidedelegation](https://admin.google.com/ac/owl/domainwidedelegation) | **Stage 2 Gate** | Authorizes each environment's Discovery Engine Service Agent (`service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com`) using its **21-digit numeric `client_id` (`uniqueId`)** and the 9 read-only OAuth scopes output by `make dwd-checklist`. |
 | **Google Cloud Core Services API Control** | *Security > Access and data control > API controls > Google Cloud Core Services* | **Stage 2 Gate** | Confirm that the created customer GCP environment project IDs are permitted to access Google Workspace APIs if tenant-level API restrictions are enforced. |
 
-##### Exact 9 OAuth 2.0 Scopes Required for Domain-Wide Delegation
+##### Exact 8 OAuth 2.0 Scopes Required for Domain-Wide Delegation
 
 Copy and paste this exact comma-separated string (also emitted by `make dwd-checklist` under `oauth_scopes_csv`) into the Google Workspace Domain-Wide Delegation dialog for each environment's 21-digit Client ID:
 
 ```bash
-https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly,https://www.googleapis.com/auth/chat.memberships.readonly
+https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly
 ```
 
 | Connector / Subsystem | Required OAuth 2.0 Scope | Access Level & Security Posture |
@@ -142,7 +142,7 @@ https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.google
 | **Gmail Connector (`google_mail`)** | `https://www.googleapis.com/auth/gmail.readonly` | Read-only real-time federated query execution across user mail threads. |
 | **Calendar Connector (`google_calendar`)** | `https://www.googleapis.com/auth/calendar.readonly` | Read-only real-time federated query execution across user calendar events. |
 | **Drive Connector (`google_drive`)** | `https://www.googleapis.com/auth/drive.readonly` | Read-only real-time federated query execution across Google Drive files and shared drives. |
-| **Chat Connector (`google_chat`)** | `https://www.googleapis.com/auth/chat.spaces.readonly`<br/>`https://www.googleapis.com/auth/chat.messages.readonly`<br/>`https://www.googleapis.com/auth/chat.memberships.readonly` | Read-only real-time federated query execution across Google Chat spaces, messages, and space memberships. |
+| **Chat Connector (`google_chat`)** | `https://www.googleapis.com/auth/chat.spaces.readonly`<br/>`https://www.googleapis.com/auth/chat.messages.readonly` | Read-only real-time federated query execution across Google Chat spaces and messages. |
 
 #### 3.3 Plane 3: Gemini Enterprise Licensing & Subscription Pool Requirements
 
@@ -218,7 +218,7 @@ The repository supports provisioning a dedicated **Google Cloud Identity / Works
 | Requirement Dimension | Specification & Guidance |
 | :--- | :--- |
 | **Authentication Architecture** | Reuses the existing **Discovery Engine Service Agent Domain-Wide Delegation (DWD)**. **Zero new credentials** or API tokens required. |
-| **Required Directory Scopes** | Automatically emitted in `make dwd-checklist` and `make people-checklist`:<br/>• `https://www.googleapis.com/auth/admin.directory.user.readonly`<br/>• `https://www.googleapis.com/auth/admin.directory.orgunit.readonly`<br/>• `https://www.googleapis.com/auth/admin.directory.customschema.readonly` |
+| **Required Directory Scopes** | Automatically emitted in `make dwd-checklist` and `make people-checklist`:<br/>• `https://www.googleapis.com/auth/admin.directory.user.readonly`<br/>• `https://www.googleapis.com/auth/admin.directory.orgunit.readonly`<br/>• `https://www.googleapis.com/auth/admin.directory.userschema.readonly` |
 | **Connector Mode & Sync** | `connector_modes = ["DATA_INGESTION"]`, default sync mode `INCREMENTAL` with daily synchronization (`refresh_interval = "86400s"`). |
 | **Target Entities** | `user_profile`, `job_architecture`, `reporting_hierarchy`, `location_contact`, `custom_attributes` (configurable via `people_directory_config.entities`). |
 | **Scoping & Filters** | Filter ingestion by Organizational Units (`org_units_include`) or custom employee schemas (`custom_schemas_include`). Optional flag `include_suspended_users = false`. |

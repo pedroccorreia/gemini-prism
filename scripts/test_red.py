@@ -1472,7 +1472,7 @@ class TestTerraformDefaultsContract(unittest.TestCase):
         self.assertIn("confluence-federated-collection", content)
 
     def test_main_tf_dwd_scopes_include_directory_scopes(self):
-        """main.tf dwd_scopes must include orgunit and customschema scopes for People Directory."""
+        """main.tf dwd_scopes must include orgunit and userschema scopes for People Directory."""
         main_tf_path = os.path.join(REPO_ROOT, "main.tf")
         with open(main_tf_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -1482,7 +1482,7 @@ class TestTerraformDefaultsContract(unittest.TestCase):
             "https://www.googleapis.com/auth/admin.directory.group.readonly",
             "https://www.googleapis.com/auth/admin.directory.group.member.readonly",
             "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
-            "https://www.googleapis.com/auth/admin.directory.customschema.readonly"
+            "https://www.googleapis.com/auth/admin.directory.userschema.readonly"
         ]
         for sc in required_scopes:
             self.assertIn(sc, content, f"main.tf dwd_scopes missing required Directory scope: {sc}")

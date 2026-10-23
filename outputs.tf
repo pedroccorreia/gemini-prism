@@ -51,7 +51,7 @@ output "dwd_checklist" {
       admin_console_url   = "https://admin.google.com/ac/owl/domainwidedelegation"
       oauth_scopes        = local.dwd_scopes
       oauth_scopes_csv    = join(",", local.dwd_scopes)
-      action_instructions = "Add DWD API Client in Google Workspace Admin Console using service_agent_email as Client ID with oauth_scopes_csv."
+      action_instructions = "Add DWD API Client in Google Workspace Admin Console using the 21-digit numeric Client ID (uniqueId) from make dwd-checklist with oauth_scopes_csv."
     }
   }
 }
@@ -155,7 +155,7 @@ output "people_directory_checklist" {
       required_scopes = [
         "https://www.googleapis.com/auth/admin.directory.user.readonly",
         "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
-        "https://www.googleapis.com/auth/admin.directory.customschema.readonly",
+        "https://www.googleapis.com/auth/admin.directory.userschema.readonly",
         "https://www.googleapis.com/auth/directory.readonly"
       ]
       action_instructions = "Ensure Domain-Wide Delegation in Google Workspace Admin Console includes the required Directory API scopes for the service agent email."

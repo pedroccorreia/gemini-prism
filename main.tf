@@ -11,7 +11,7 @@ locals {
   environments = {
     for env in var.environments : env => {
       display_name = lookup(local.environment_details, env, { display_name = title(replace(env, "-", " ")) }).display_name
-      project_id   = "${var.project_id_prefix}${var.customer_id}-${env}"
+      project_id   = lookup(var.custom_project_ids, env, "${var.project_id_prefix}${var.customer_id}-${env}")
       seat_count   = lookup(var.seat_allocations, env, 0)
     }
   }
@@ -389,14 +389,13 @@ locals {
     "https://www.googleapis.com/auth/admin.directory.group.readonly",
     "https://www.googleapis.com/auth/admin.directory.group.member.readonly",
     "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
-    "https://www.googleapis.com/auth/admin.directory.customschema.readonly",
+    "https://www.googleapis.com/auth/admin.directory.userschema.readonly",
     "https://www.googleapis.com/auth/directory.readonly",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
     "https://www.googleapis.com/auth/chat.spaces.readonly",
-    "https://www.googleapis.com/auth/chat.messages.readonly",
-    "https://www.googleapis.com/auth/chat.memberships.readonly"
+    "https://www.googleapis.com/auth/chat.messages.readonly"
   ]
 
 
@@ -409,12 +408,12 @@ locals {
 # 0. Provision GCP Projects per Customer Environment
 resource "google_project" "projects" {
   for_each        = local.environments
-  name            = substr("${var.customer_name} ${each.value.display_name}", 0, 30)
+  name            = lookup(var.custom_project_names, each.key, substr("${var.customer_name} ${each.value.display_name}", 0, 30))
   project_id      = each.value.project_id
   folder_id       = local.effective_folder_id
   org_id          = local.effective_org_id
   billing_account = var.billing_account
-  deletion_policy = contains(["prod", "production"], lower(each.key)) ? "PREVENT" : "DELETE"
+  deletion_policy = contains(["prod", "production", "ge-prism"], lower(each.key)) ? "PREVENT" : "DELETE"
 }
 
 # 1. Enable GCP Services per Customer Environment Project
@@ -570,8 +569,8 @@ resource "google_discovery_engine_search_engine" "engines" {
   project           = google_project.projects[each.key].project_id
   location          = var.location
   collection_id     = "default_collection"
-  engine_id         = "${var.customer_id}-${each.key}-search-engine"
-  display_name      = "${var.customer_name} (${each.value.display_name}) Search App"
+  engine_id         = lookup(var.custom_engine_ids, each.key, "${var.customer_id}-${each.key}-search-engine")
+  display_name      = lookup(var.custom_engine_names, each.key, "${var.customer_name} (${each.value.display_name}) Search App")
   industry_vertical = "GENERIC"
   app_type          = "APP_TYPE_INTRANET"
 

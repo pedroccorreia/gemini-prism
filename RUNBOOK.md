@@ -153,7 +153,7 @@ stateDiagram-v2
    - **Client ID**: The 21-digit numeric `client_id` (`uniqueId`) or `service_agent_email` from `make dwd-checklist`.
    - **OAuth Scopes**: Copy and paste the comma-separated scope string from `dwd-checklist`:
      ```
-     https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly,https://www.googleapis.com/auth/admin.directory.orgunit.readonly,https://www.googleapis.com/auth/admin.directory.customschema.readonly,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly,https://www.googleapis.com/auth/chat.memberships.readonly
+     https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly,https://www.googleapis.com/auth/admin.directory.orgunit.readonly,https://www.googleapis.com/auth/admin.directory.userschema.readonly,https://www.googleapis.com/auth/directory.readonly,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly
      ```
    - Click **Authorize**.
 4. In Workspace Admin Console under **Security > Access and data control > API controls > Google Cloud Core Services**, allow access for the environment GCP project IDs if prompted.
@@ -169,7 +169,7 @@ stateDiagram-v2
    - Update `confluence_config.instance_uri` and `confluence_config.instance_id` in `terraform.tfvars` (or omit to inherit from Jira).
 7. If Google People & Org Directory is planned (`"people_directory"` in `planned_connectors` or `enable_people_directory_connector = true`):
    - Run `make people-checklist` to view directory configuration, target entities, and sync parameters.
-   - People Directory reuses the DWD authorization above; ensure all Directory scopes (`user.readonly`, `orgunit.readonly`, `customschema.readonly`, `directory.readonly`) are authorized.
+   - People Directory reuses the DWD authorization above; ensure all Directory scopes (`user.readonly`, `orgunit.readonly`, `userschema.readonly`, `directory.readonly`) are authorized.
 8. Enable planned connectors via Stage 2 Enablement Helper:
    ```bash
    make enable-connectors

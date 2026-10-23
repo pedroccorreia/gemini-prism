@@ -18,6 +18,10 @@ import shutil
 import subprocess
 import sys
 
+for _p in ["/opt/homebrew/bin", "/usr/local/bin"]:
+    if os.path.exists(_p) and _p not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = f"{_p}:{os.environ.get('PATH', '')}"
+
 
 PHASES = {
     0: "preflight_inputs",
@@ -62,16 +66,16 @@ def parse_tfvars(tfvars_path):
     map_matches = re.findall(r'^\s*([a-zA-Z0-9_-]+)\s*=\s*\{(.*?)\}', clean_text, re.MULTILINE | re.DOTALL)
     for k, raw_map in map_matches:
         inner = {}
-        # Parse lists inside map: key = ["a", "b"] or key = ['a', 'b']
-        for mk, raw_items in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*\[(.*?)\]', raw_map, re.DOTALL):
+        # Parse lists inside map: key = ["a", "b"] or "key" = ["a", "b"]
+        for mk, raw_items in re.findall(r'["\']?([a-zA-Z0-9_-]+)["\']?\s*=\s*\[(.*?)\]', raw_map, re.DOTALL):
             inner[mk] = re.findall(r'["\']([^"\']*)["\']', raw_items)
-        raw_map_clean = re.sub(r'([a-zA-Z0-9_-]+)\s*=\s*\[.*?\]', '', raw_map, flags=re.DOTALL)
-        # Parse strings inside map: key = "value"
-        for mk, mv in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"', raw_map_clean):
+        raw_map_clean = re.sub(r'["\']?[a-zA-Z0-9_-]+["\']?\s*=\s*\[.*?\]', '', raw_map, flags=re.DOTALL)
+        # Parse strings inside map: key = "value" or "key" = "value"
+        for mk, mv in re.findall(r'["\']?([a-zA-Z0-9_-]+)["\']?\s*=\s*"([^"]*)"', raw_map_clean):
             if mk not in inner:
                 inner[mk] = mv
         # Parse booleans, numbers, or identifiers: key = true / false / 123 / null
-        for mk, mv in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*([a-zA-Z0-9_./:-]+)\b', raw_map_clean):
+        for mk, mv in re.findall(r'["\']?([a-zA-Z0-9_-]+)["\']?\s*=\s*([a-zA-Z0-9_./:-]+)\b', raw_map_clean):
             if mk not in inner:
                 if mv.lower() == "true":
                     inner[mk] = True
@@ -259,7 +263,8 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
     customer_id = tfvars["customer_id"]
     prefix = tfvars.get("project_id_prefix", "")
     environments = tfvars.get("environments") or ["non-prod", "prod"]
-    expected_project_ids = {f"{prefix}{customer_id}-{env}" for env in environments}
+    custom_project_ids = tfvars.get("custom_project_ids") or {}
+    expected_project_ids = {custom_project_ids.get(env, f"{prefix}{customer_id}-{env}") for env in environments}
 
     # 4. State Mismatch Guard
     actual_state_path = state_path or os.path.join(workdir, "terraform.tfstate")
@@ -689,6 +694,10 @@ def print_dwd_checklist():
         pid = info.get("project_id")
         if tok and pnum:
             try:
+                import ssl
+                ctx = ssl.create_default_context()
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
                 url = f"https://serviceusage.googleapis.com/v1beta1/projects/{pnum}/services/discoveryengine.googleapis.com:generateServiceIdentity"
                 req = urllib.request.Request(
                     url,
@@ -700,7 +709,7 @@ def print_dwd_checklist():
                         "Content-Type": "application/json",
                     },
                 )
-                resp = json.loads(urllib.request.urlopen(req).read().decode())
+                resp = json.loads(urllib.request.urlopen(req, context=ctx).read().decode())
                 uid = resp.get("response", {}).get("uniqueId")
                 if uid:
                     info["client_id"] = uid
@@ -826,7 +835,7 @@ def print_people_directory_checklist():
                 "required_scopes": [
                     "https://www.googleapis.com/auth/admin.directory.user.readonly",
                     "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
-                    "https://www.googleapis.com/auth/admin.directory.customschema.readonly"
+                    "https://www.googleapis.com/auth/admin.directory.userschema.readonly"
                 ],
                 "action_instructions": "Ensure Domain-Wide Delegation in Google Workspace Admin Console includes the required Directory API scopes for the service agent email."
             }

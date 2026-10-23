@@ -25,6 +25,30 @@ variable "environments" {
   }
 }
 
+variable "custom_project_ids" {
+  type        = map(string)
+  description = "Optional mapping of environment name to explicit GCP project ID."
+  default     = {}
+}
+
+variable "custom_project_names" {
+  type        = map(string)
+  description = "Optional mapping of environment name to explicit GCP project name."
+  default     = {}
+}
+
+variable "custom_engine_ids" {
+  type        = map(string)
+  description = "Optional mapping of environment name to explicit Discovery Engine ID."
+  default     = {}
+}
+
+variable "custom_engine_names" {
+  type        = map(string)
+  description = "Optional mapping of environment name to explicit Discovery Engine display name."
+  default     = {}
+}
+
 variable "location" {
   type        = string
   description = "The location for the Discovery Engine resources (e.g., global, us, eu)"

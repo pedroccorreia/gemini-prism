@@ -88,6 +88,19 @@ CONNECTOR_OPTIONS = [
         "default": False,
         "enable_flag": "enable_people_directory_connector",
     },
+    {
+        "value": "hubspot",
+        "label": "HubSpot",
+        "description": "HubSpot CRM contacts, companies, deals, and tickets federated search connector",
+        "docs_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
+        "help_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
+        "doc_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
+        "admin_url": "https://app.hubspot.com",
+        "lookup_command": "echo 'hubspot-federated-collection'",
+        "required_roles": ["HubSpot Super Admin"],
+        "default": False,
+        "enable_flag": "enable_hubspot_connector",
+    },
 ]
 
 PLACEHOLDER_STRINGS = {
@@ -473,6 +486,7 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
         updates["enable_jira_connector"] = False
         updates["enable_confluence_connector"] = False
         updates["enable_people_directory_connector"] = False
+        updates["enable_hubspot_connector"] = False
 
     # 1. Update planned_connectors
     if "planned_connectors" in updates:
@@ -486,7 +500,7 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
             content += f"\n{line}\n"
 
     # 2. Update enable_* flags
-    for flag in ["enable_connectors", "enable_jira_connector", "enable_confluence_connector", "enable_people_directory_connector"]:
+    for flag in ["enable_connectors", "enable_jira_connector", "enable_confluence_connector", "enable_people_directory_connector", "enable_hubspot_connector"]:
         if flag in updates:
             val_bool = "true" if updates[flag] else "false"
             spacing = "    " if flag == "enable_connectors" else " "
@@ -522,11 +536,14 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
         "enable_jira_connector",
         "enable_confluence_connector",
         "enable_people_directory_connector",
+        "enable_hubspot_connector",
         "jira_instance_uri",
         "jira_instance_id",
         "jira_config.instance_uri",
         "jira_config.instance_id",
         "jira_auth",
+        "hubspot_auth",
+        "hubspot_config",
     }
     for k, v in updates.items():
         if k in skip_keys:
@@ -923,6 +940,7 @@ def enable_connectors(workdir=".", state_path=None, tfvars_path=None, json_outpu
         "enable_jira_connector": ("jira" in planned),
         "enable_confluence_connector": ("confluence" in planned),
         "enable_people_directory_connector": ("people_directory" in planned),
+        "enable_hubspot_connector": ("hubspot" in planned),
     }
     update_tfvars(actual_tfvars, updates, stage=stage, allow_enable=True, workdir=workdir)
 
@@ -939,6 +957,7 @@ def enable_connectors(workdir=".", state_path=None, tfvars_path=None, json_outpu
         print(f"  • enable_jira_connector            = {str(updates['enable_jira_connector']).lower()}")
         print(f"  • enable_confluence_connector      = {str(updates['enable_confluence_connector']).lower()}")
         print(f"  • enable_people_directory_connector = {str(updates['enable_people_directory_connector']).lower()}")
+        print(f"  • enable_hubspot_connector         = {str(updates['enable_hubspot_connector']).lower()}")
         print("=" * 80)
         print("Next step: Run 'make plan-connectors && make apply-connectors' to provision resources.")
     sys.exit(0)
@@ -1034,10 +1053,10 @@ def main():
             if not isinstance(planned, list):
                 print("Error: planned_connectors must be a list of strings", file=sys.stderr)
                 sys.exit(1)
-            valid_set = {"workspace", "jira", "people_directory"}
+            valid_set = {"workspace", "jira", "people_directory", "confluence", "hubspot"}
             for c in planned:
                 if c not in valid_set:
-                    print(f"Error: Invalid connector '{c}'. Allowed: 'workspace', 'jira', 'people_directory'", file=sys.stderr)
+                    print(f"Error: Invalid connector '{c}'. Allowed: 'workspace', 'jira', 'confluence', 'people_directory', 'hubspot'", file=sys.stderr)
                     sys.exit(1)
 
         stage = determine_stage(workdir, state_path, tfvars_path)

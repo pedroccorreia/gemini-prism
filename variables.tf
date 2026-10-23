@@ -102,14 +102,14 @@ variable "sa_email" {
 
 variable "planned_connectors" {
   type        = list(string)
-  description = "List of enterprise connectors planned for deployment (workspace, jira, confluence, people_directory)"
+  description = "List of enterprise connectors planned for deployment (workspace, jira, confluence, people_directory, hubspot)"
   default     = ["workspace"]
 
   validation {
     condition = alltrue([
-      for c in var.planned_connectors : contains(["workspace", "jira", "confluence", "people_directory"], c)
+      for c in var.planned_connectors : contains(["workspace", "jira", "confluence", "people_directory", "hubspot"], c)
     ])
-    error_message = "Each element of planned_connectors must be one of: 'workspace', 'jira', 'confluence', 'people_directory'."
+    error_message = "Each element of planned_connectors must be one of: 'workspace', 'jira', 'confluence', 'people_directory', 'hubspot'."
   }
 }
 
@@ -323,4 +323,52 @@ variable "confluence_config" {
     error_message = "All connectors must use FEDERATED mode (connector_modes = [\"FEDERATED\"])."
   }
 }
+
+variable "enable_hubspot_connector" {
+  type        = bool
+  description = "Whether to provision the HubSpot Discovery Engine data connector. Set to true after HubSpot credentials are configured."
+  default     = false
+}
+
+variable "hubspot_auth" {
+  type = object({
+    api_token                = optional(string, "")
+    bearer_token             = optional(string, "")
+    private_app_access_token = optional(string, "")
+  })
+  description = "Sensitive authentication credentials for HubSpot connector (pass via TF_VAR_hubspot_auth environment variable)"
+  default     = {}
+  sensitive   = true
+}
+
+variable "hubspot_config" {
+  type = object({
+    instance_uri                 = optional(string, "https://api.hubapi.com")
+    collection_id                = optional(string, "hubspot-federated-collection")
+    data_source                  = optional(string, "hubspot")
+    data_source_version          = optional(number, null)
+    connector_modes              = optional(list(string), ["FEDERATED"])
+    sync_mode                    = optional(string, "PERIODIC")
+    refresh_interval             = optional(string, "86400s")
+    incremental_refresh_interval = optional(string, "10800s")
+    entities                     = optional(list(string), ["contacts", "companies", "deals", "tickets"])
+    static_ip_enabled            = optional(bool, false)
+    auto_run_disabled            = optional(bool, false)
+    incremental_sync_disabled    = optional(bool, false)
+    extra_params                 = optional(map(string), {})
+  })
+  description = "Configuration for the HubSpot data connector"
+  default     = {}
+
+  validation {
+    condition     = contains(["hubspot"], coalesce(var.hubspot_config.data_source, "hubspot"))
+    error_message = "hubspot_config.data_source must be 'hubspot'."
+  }
+
+  validation {
+    condition     = contains(coalesce(var.hubspot_config.connector_modes, ["FEDERATED"]), "FEDERATED") && !contains(coalesce(var.hubspot_config.connector_modes, ["FEDERATED"]), "DATA_INGESTION")
+    error_message = "All connectors must use FEDERATED mode (connector_modes = [\"FEDERATED\"])."
+  }
+}
+
 

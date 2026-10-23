@@ -320,6 +320,7 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
     enable_jira_connector = tfvars.get("enable_jira_connector", False)
     enable_confluence_connector = tfvars.get("enable_confluence_connector", False)
     enable_people_directory_connector = tfvars.get("enable_people_directory_connector", False)
+    enable_hubspot_connector = tfvars.get("enable_hubspot_connector", False)
 
     # Validate planned_connectors
     has_explicit_planned = "planned_connectors" in tfvars
@@ -335,28 +336,30 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 "handoff_template": "inputs",
                 "exit_code": 1
             }
-        invalid = [c for c in planned_connectors if c not in ("workspace", "jira", "confluence", "people_directory")]
+        invalid = [c for c in planned_connectors if c not in ("workspace", "jira", "confluence", "people_directory", "hubspot")]
         if invalid:
             return {
                 "phase": 2,
                 "phase_name": PHASES[2],
                 "owner": "human",
-                "blockers": [f"Invalid connector(s) in planned_connectors: {', '.join(invalid)}. Allowed: workspace, jira, confluence, people_directory"],
+                "blockers": [f"Invalid connector(s) in planned_connectors: {', '.join(invalid)}. Allowed: workspace, jira, confluence, people_directory, hubspot"],
                 "next_action": "Run 'make configure' to select valid connectors",
                 "handoff_template": "inputs",
                 "exit_code": 1
             }
     else:
-        if enable_jira_connector and not enable_connectors and not enable_confluence_connector and not enable_people_directory_connector:
+        if enable_jira_connector and not enable_connectors and not enable_confluence_connector and not enable_people_directory_connector and not enable_hubspot_connector:
             planned_connectors = ["jira"]
-        elif enable_confluence_connector and not enable_connectors and not enable_jira_connector and not enable_people_directory_connector:
+        elif enable_confluence_connector and not enable_connectors and not enable_jira_connector and not enable_people_directory_connector and not enable_hubspot_connector:
             planned_connectors = ["confluence"]
+        elif enable_hubspot_connector and not enable_connectors and not enable_jira_connector and not enable_confluence_connector and not enable_people_directory_connector:
+            planned_connectors = ["hubspot"]
         else:
             planned_connectors = ["workspace"]
 
     # If neither connector is enabled, block on human authorization gate and guide to make enable-connectors
-    if not enable_connectors and not enable_jira_connector and not enable_confluence_connector and not enable_people_directory_connector:
-        if "workspace" in planned_connectors or ("jira" not in planned_connectors and "confluence" not in planned_connectors and "people_directory" not in planned_connectors):
+    if not enable_connectors and not enable_jira_connector and not enable_confluence_connector and not enable_people_directory_connector and not enable_hubspot_connector:
+        if "workspace" in planned_connectors or ("jira" not in planned_connectors and "confluence" not in planned_connectors and "people_directory" not in planned_connectors and "hubspot" not in planned_connectors):
             return {
                 "phase": 2,
                 "phase_name": PHASES[2],
@@ -384,6 +387,16 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 "blockers": ["Atlassian Confluence authorization pending in Atlassian Developer Console"],
                 "next_action": "Complete authorizations (run 'make confluence-checklist'), then run 'make enable-connectors'",
                 "handoff_template": "confluence",
+                "exit_code": 2
+            }
+        elif "hubspot" in planned_connectors:
+            return {
+                "phase": 2,
+                "phase_name": "hubspot_authorization",
+                "owner": "human",
+                "blockers": ["HubSpot authorization pending (service key)"],
+                "next_action": "Complete authorizations (run 'make hubspot-checklist'), then run 'make enable-connectors'",
+                "handoff_template": "hubspot",
                 "exit_code": 2
             }
         else:
@@ -417,6 +430,16 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 "blockers": ["Planned Confluence connector pending authorization / enablement"],
                 "next_action": "Complete authorizations (run 'make confluence-checklist'), then run 'make enable-connectors'",
                 "handoff_template": "confluence",
+                "exit_code": 2
+            }
+        if "hubspot" in planned_connectors and not enable_hubspot_connector:
+            return {
+                "phase": 2,
+                "phase_name": "hubspot_authorization",
+                "owner": "human",
+                "blockers": ["Planned HubSpot connector pending authorization / enablement"],
+                "next_action": "Complete authorizations (run 'make hubspot-checklist'), then run 'make enable-connectors'",
+                "handoff_template": "hubspot",
                 "exit_code": 2
             }
         if "workspace" in planned_connectors and not enable_connectors:
@@ -518,6 +541,44 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 "exit_code": 2
             }
 
+    # HubSpot connector onboarding validation if enabled
+    if enable_hubspot_connector:
+        hubspot_cfg = tfvars.get("hubspot_config", {})
+        connector_modes = hubspot_cfg.get("connector_modes")
+        if isinstance(connector_modes, list) and ("DATA_INGESTION" in connector_modes or "FEDERATED" not in connector_modes):
+            return {
+                "phase": 2,
+                "phase_name": "hubspot_authorization",
+                "owner": "human",
+                "blockers": ["HubSpot connector must use FEDERATED mode (connector_modes = [\"FEDERATED\"]) in terraform.tfvars"],
+                "next_action": "make hubspot-checklist",
+                "handoff_template": "hubspot",
+                "exit_code": 2
+            }
+        has_token = False
+        hubspot_auth_env = os.environ.get("TF_VAR_hubspot_auth")
+        if hubspot_auth_env:
+            try:
+                env_obj = json.loads(hubspot_auth_env) if isinstance(hubspot_auth_env, str) and hubspot_auth_env.startswith("{") else {}
+                if any(env_obj.get(k) for k in ("private_app_access_token", "api_token", "bearer_token")):
+                    has_token = True
+            except Exception:
+                pass
+        if not has_token:
+            hubspot_auth_tfvar = tfvars.get("hubspot_auth", {})
+            if isinstance(hubspot_auth_tfvar, dict) and any(hubspot_auth_tfvar.get(k) for k in ("private_app_access_token", "api_token", "bearer_token")):
+                has_token = True
+        if not has_token:
+            return {
+                "phase": 2,
+                "phase_name": "hubspot_authorization",
+                "owner": "human",
+                "blockers": ["HubSpot authorization token missing (set via TF_VAR_hubspot_auth environment variable)"],
+                "next_action": "make hubspot-checklist",
+                "handoff_template": "hubspot",
+                "exit_code": 2
+            }
+
     # 7. Stage 3 Connectors & Engines check
     search_engines_output = state_outputs.get("search_engine_names", {}).get("value", {})
     assistants_output = state_outputs.get("assistant_names", {}).get("value", {})
@@ -576,6 +637,24 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 people_directory_connectors_present = False
                 break
 
+    # Check HubSpot connector existence in state if enabled
+    hubspot_connectors_present = True
+    if enable_hubspot_connector:
+        connector_keys = set()
+        if state and "_error" not in state:
+            for res in state.get("resources", []):
+                if res.get("type") == "google_discovery_engine_data_connector":
+                    for inst in res.get("instances", []):
+                        if inst.get("index_key"):
+                            connector_keys.add(inst.get("index_key"))
+            data_connectors_output = state_outputs.get("data_connector_names", {}).get("value", {})
+            if isinstance(data_connectors_output, dict):
+                connector_keys.update(data_connectors_output.keys())
+        for env in environments:
+            if f"{env}-hubspot" not in connector_keys:
+                hubspot_connectors_present = False
+                break
+
     stage3_complete = (
         bool(search_engines_output) and
         all(env in search_engines_output for env in environments) and
@@ -583,7 +662,8 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
         all(env in assistants_output for env in environments) and
         jira_connectors_present and
         confluence_connectors_present and
-        people_directory_connectors_present
+        people_directory_connectors_present and
+        hubspot_connectors_present
     )
 
     if not stage3_complete:
@@ -844,6 +924,27 @@ def print_people_directory_checklist():
     print(json.dumps(data, indent=2))
 
 
+def print_hubspot_checklist():
+    """Fetch terraform hubspot_checklist output and output JSON."""
+    try:
+        raw = subprocess.check_output(["terraform", "output", "-json", "hubspot_checklist"], text=True, stderr=subprocess.DEVNULL)
+        data = json.loads(raw)
+    except Exception:
+        tfvars = parse_tfvars(os.path.join(os.getcwd(), "terraform.tfvars")) or {}
+        hubspot_cfg = tfvars.get("hubspot_config", {})
+        envs = tfvars.get("environments", ["non-prod", "prod"])
+        data = {
+            env: {
+                "project_id": f"{tfvars.get('project_id_prefix', '')}{tfvars.get('customer_id', 'customer')}-{env}",
+                "instance_uri": hubspot_cfg.get("instance_uri", "https://api.hubapi.com"),
+                "entities": hubspot_cfg.get("entities", ["contact", "company", "deal", "ticket"]),
+                "action_instructions": "Generate a Service Key in HubSpot Settings > Development > Keys > Service Keys and pass via TF_VAR_hubspot_auth."
+            }
+            for env in envs
+        }
+    print(json.dumps(data, indent=2))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Check deployment status and determine next automated/human step.")
     parser.add_argument("--json", action="store_true", help="Output status in JSON format for agent consumption.")
@@ -851,6 +952,7 @@ def main():
     parser.add_argument("--jira-checklist", action="store_true", help="Print Jira checklist enriched with discovered Atlassian cloudId.")
     parser.add_argument("--confluence-checklist", action="store_true", help="Print Confluence checklist enriched with discovered Atlassian cloudId.")
     parser.add_argument("--people-directory-checklist", action="store_true", help="Print Google People Directory connector onboarding checklist.")
+    parser.add_argument("--hubspot-checklist", action="store_true", help="Print HubSpot connector onboarding checklist.")
     parser.add_argument("--deep", action="store_true", help="Perform deep drift check via terraform plan.")
     parser.add_argument("--workdir", default=".", help="Root directory of the Terraform repository.")
     parser.add_argument("--state-file", help="Path to terraform.tfstate override (for test fixtures).")
@@ -875,6 +977,11 @@ def main():
     if args.people_directory_checklist:
         print_people_directory_checklist()
         sys.exit(0)
+
+    if args.hubspot_checklist:
+        print_hubspot_checklist()
+        sys.exit(0)
+
 
     status_data = determine_status(
         workdir=os.path.abspath(args.workdir),

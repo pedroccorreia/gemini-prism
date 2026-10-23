@@ -92,3 +92,21 @@ people_directory_config = {
   sync_mode               = "INCREMENTAL"
   entities                = ["user_profile", "job_architecture", "reporting_hierarchy", "location_contact", "custom_attributes"]
 }
+
+# HubSpot Connector (optional)
+enable_hubspot_connector = false
+
+hubspot_config = {
+  instance_uri        = "https://api.hubapi.com"
+  collection_id       = "hubspot-federated-collection"
+  data_source         = "hubspot"
+  connector_modes     = ["FEDERATED"]
+  entities            = ["contacts", "companies", "deals", "tickets"]
+  refresh_interval    = "86400s"
+  static_ip_enabled   = false
+  auto_run_disabled   = false
+}
+
+# Note: Sensitive credentials should be passed via TF_VAR_hubspot_auth environment variable, e.g.:
+# export TF_VAR_hubspot_auth='{"api_token":"pat-na1-xxxx-xxxx"}'
+

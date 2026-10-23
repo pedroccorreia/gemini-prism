@@ -170,13 +170,17 @@ stateDiagram-v2
 7. If Google People & Org Directory is planned (`"people_directory"` in `planned_connectors` or `enable_people_directory_connector = true`):
    - Run `make people-checklist` to view directory configuration, target entities, and sync parameters.
    - People Directory reuses the DWD authorization above; ensure all Directory scopes (`user.readonly`, `orgunit.readonly`, `userschema.readonly`, `directory.readonly`) are authorized.
-8. Enable planned connectors via Stage 2 Enablement Helper:
+8. If HubSpot is planned (`"hubspot"` in `planned_connectors` or `enable_hubspot_connector = true`):
+   - Run `make hubspot-checklist` to view connector configuration and target CRM entities (`contact`, `company`, `deal`, `ticket`).
+   - Create a Private App in HubSpot (`https://app.hubspot.com`), grant read scopes, and supply the service key Bearer token via `export TF_VAR_hubspot_auth='{"api_token":"pat-..."}'`.
+   - Ensure `connector_modes = ["FEDERATED"]` is configured in `hubspot_config`.
+9. Enable planned connectors via Stage 2 Enablement Helper:
    ```bash
    make enable-connectors
    ```
-   *(Or manually update `terraform.tfvars` with `enable_connectors = true`, `enable_jira_connector = true`, `enable_confluence_connector = true`, and/or `enable_people_directory_connector = true`.)*
+   *(Or manually update `terraform.tfvars` with `enable_connectors = true`, `enable_jira_connector = true`, `enable_confluence_connector = true`, `enable_people_directory_connector = true`, and/or `enable_hubspot_connector = true`.)*
    ```
-   The enablement helper verifies that all prerequisites and credentials for `planned_connectors` are configured and valid (Workspace domain and customer ID, Jira instance URI and OAuth/token credentials, People Directory scopes), then automatically flips the corresponding `enable_* = true` flags in `terraform.tfvars` (`enable_connectors`, `enable_jira_connector`, and/or `enable_people_directory_connector`). Alternatively, set flags manually in `terraform.tfvars`.
+   The enablement helper verifies that all prerequisites and credentials for `planned_connectors` are configured and valid (Workspace domain and customer ID, Jira instance URI and OAuth/token credentials, People Directory scopes, HubSpot credentials), then automatically flips the corresponding `enable_* = true` flags in `terraform.tfvars`. Alternatively, set flags manually in `terraform.tfvars`.
 
 **Done when:**
 - Planned connectors are validated and matching `enable_* = true` flags are enabled in `terraform.tfvars` via `make enable-connectors` (or manually set).
@@ -189,6 +193,7 @@ stateDiagram-v2
 - Incomplete scopes: Ensure all 11 required scopes are pasted without trailing spaces.
 - Jira OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make jira-checklist`, and credentials in `TF_VAR_jira_auth` have access to the target Jira Cloud instance.
 - Confluence OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make confluence-checklist`, and credentials in `TF_VAR_confluence_auth` (or fallback `TF_VAR_jira_auth`) have access to the target Confluence Cloud instance.
+- HubSpot token rejection: Verify HubSpot Private App Service Key has required scopes and is exported via `TF_VAR_hubspot_auth`.
 - Enablement helper reports missing prerequisites: Run `make check-inputs` to identify unresolved variables and consult the Help Center reference table below.
 
 ### Connector Help Center Reference Table
@@ -199,6 +204,7 @@ stateDiagram-v2
 | **Atlassian Jira Cloud** | `FEDERATED` | [Jira Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/)<br/>[Atlassian Admin Console](https://admin.atlassian.com) | Atlassian Org Admin / Site Admin<br/>OAuth 2.0 (3LO) App / Token (`TF_VAR_jira_auth`) |
 | **Atlassian Confluence** | `FEDERATED` | [Confluence Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) | Atlassian Org Admin / Site Admin<br/>OAuth 2.0 (3LO) or Shared Jira credentials |
 | **Google People Directory** | `DATA_INGESTION` (Incremental) | [Google Directory API Guide](https://developers.google.com/admin-sdk/directory/v1/guides)<br/>[Cloud Identity Docs](https://cloud.google.com/identity/docs/) | [Workspace DWD Console](https://admin.google.com/ac/owl/domainwidedelegation) | Google Workspace Super Admin<br/>Service Agent DWD (0 additional credentials) |
+| **HubSpot** | `FEDERATED` | [HubSpot Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot) | [HubSpot App Settings](https://app.hubspot.com) | HubSpot Super Admin<br/>Private App Service Key / Bearer Token (`TF_VAR_hubspot_auth`) |
 
 **Checklist:**
 - [ ] Retrieved 21-digit numeric `client_id`, service agent email, and scope CSV via `make dwd-checklist`
@@ -207,17 +213,18 @@ stateDiagram-v2
 - [ ] Configured Jira OAuth app / API token via `make jira-checklist` (if Jira planned)
 - [ ] Configured Confluence OAuth app / credentials via `make confluence-checklist` (if Confluence planned)
 - [ ] Inspected People Directory settings via `make people-checklist` (if People Directory planned)
+- [ ] Configured HubSpot Private App service key via `make hubspot-checklist` (if HubSpot planned)
 - [ ] Validated prerequisites and enabled planned connectors via `make enable-connectors` (or flipped `enable_* = true` in `terraform.tfvars`)
 
 ---
 
-## Stage 3 — Workspace, Jira & Confluence Connectors, Search Engines & Assistants
+## Stage 3 — Workspace, Jira, Confluence & HubSpot Connectors, Search Engines & Assistants
 
 **Owner:** Agent (after Stage 2 Human Gate)
 
 **Preconditions (machine-checkable):**
 - `make status` returns exit code 0 (`phase: 3, phase_name: "connectors_and_engines_apply"`).
-- `enable_connectors` is `true` in `terraform.tfvars` (or `enable_jira_connector` / `enable_confluence_connector` with configured URI).
+- `enable_connectors` is `true` in `terraform.tfvars` (or `enable_jira_connector` / `enable_confluence_connector` / `enable_hubspot_connector` with configured URI).
 
 **Do:**
 1. Generate and guard the connectors plan:

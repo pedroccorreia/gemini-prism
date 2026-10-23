@@ -162,3 +162,17 @@ output "people_directory_checklist" {
     }
   }
 }
+
+output "hubspot_checklist" {
+  description = "HubSpot connector configuration and onboarding checklist per environment"
+  value = {
+    for k, v in local.environments : k => {
+      project_id          = google_project.projects[k].project_id
+      instance_uri        = coalesce(var.hubspot_config.instance_uri, "https://api.hubapi.com")
+      entities            = coalesce(var.hubspot_config.entities, ["contact", "company", "deal", "ticket"])
+      static_ip_addresses = contains(keys(google_discovery_engine_data_connector.connectors), "${k}-hubspot") ? google_discovery_engine_data_connector.connectors["${k}-hubspot"].static_ip_addresses : []
+      action_instructions = "Generate a Service Key in HubSpot Settings > Development > Keys > Service Keys. Grant read applicable scopes and supply the secret token via export TF_VAR_hubspot_auth='{\"api_token\":\"<service_key>\"}'."
+    }
+  }
+}
+

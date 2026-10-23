@@ -1,5 +1,8 @@
 .PHONY: status configure check-inputs enable-connectors plan-foundation apply-foundation dwd-checklist jira-checklist confluence-checklist people-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify test help
 
+export PATH := /opt/homebrew/bin:/usr/local/bin:$(PATH)
+SHELL := /bin/bash
+
 WAIT ?= 15m
 
 help:
@@ -59,6 +62,10 @@ confluence-checklist:
 
 people-checklist:
 	@python3 scripts/status.py --people-directory-checklist
+
+hubspot-checklist:
+	@python3 scripts/status.py --hubspot-checklist
+
 
 plan-connectors:
 	@mkdir -p .plans

@@ -376,11 +376,70 @@ locals {
     }
   } : {}
 
+  # HubSpot connector per environment (when enabled)
+  hubspot_entity_map = {
+    "contact"   = "contacts"
+    "contacts"  = "contacts"
+    "company"   = "companies"
+    "companies" = "companies"
+    "deal"      = "deals"
+    "deals"     = "deals"
+    "ticket"    = "tickets"
+    "tickets"   = "tickets"
+  }
+
+  effective_hubspot_token = try(coalesce(
+    trimspace(nonsensitive(try(var.hubspot_auth.private_app_access_token, ""))),
+    trimspace(nonsensitive(try(var.hubspot_auth.api_token, ""))),
+    trimspace(nonsensitive(try(var.hubspot_auth.bearer_token, "")))
+  ), "")
+
+  hubspot_environment_connectors = var.enable_hubspot_connector ? {
+    for env_key, env_val in local.environments :
+    "${env_key}-hubspot" => {
+      env_key             = env_key
+      connector           = "hubspot"
+      data_source         = coalesce(var.hubspot_config.data_source, "hubspot")
+      data_source_version = var.hubspot_config.data_source_version
+      display_name        = "HubSpot"
+      collection_id       = try(coalesce(trimspace(var.hubspot_config.collection_id)), "") != "" ? trimspace(var.hubspot_config.collection_id) : "hubspot-federated-collection"
+      project_id          = google_project.projects[env_key].project_id
+      entities = [
+        for e in coalesce(var.hubspot_config.entities, ["contacts", "companies", "deals", "tickets"]) : {
+          entity_name = lookup(local.hubspot_entity_map, lower(trimspace(e)), e)
+          params      = null
+        }
+      ]
+      connector_modes              = coalesce(var.hubspot_config.connector_modes, ["FEDERATED"])
+      sync_mode                    = contains(coalesce(var.hubspot_config.connector_modes, ["FEDERATED"]), "FEDERATED") ? null : var.hubspot_config.sync_mode
+      refresh_interval             = coalesce(var.hubspot_config.refresh_interval, "86400s")
+      incremental_refresh_interval = var.hubspot_config.incremental_refresh_interval
+      static_ip_enabled            = var.hubspot_config.static_ip_enabled
+      auto_run_disabled            = var.hubspot_config.auto_run_disabled
+      incremental_sync_disabled    = var.hubspot_config.incremental_sync_disabled
+      instance_uri                 = coalesce(var.hubspot_config.instance_uri, "https://api.hubapi.com")
+      params = merge(
+        { "auth_type" = "BEARER_TOKEN" },
+        local.effective_hubspot_token != "" ? {
+          "private_app_access_token" = local.effective_hubspot_token,
+          "Private App Access Token" = local.effective_hubspot_token,
+          "bearer_token"             = local.effective_hubspot_token,
+          "api_token"                = local.effective_hubspot_token
+        } : {},
+        coalesce(var.hubspot_config.extra_params, {})
+      )
+      action_params   = {}
+      enable_actions  = false
+      enabled_actions = []
+    }
+  } : {}
+
   environment_connectors = merge(
     local.workspace_environment_connectors,
     local.jira_environment_connectors,
     local.confluence_environment_connectors,
-    local.people_directory_environment_connectors
+    local.people_directory_environment_connectors,
+    local.hubspot_environment_connectors
   )
 
   # Domain-Wide Delegation OAuth scopes required for Workspace connectors & user directory
@@ -400,9 +459,9 @@ locals {
 
 
   # Normalized optional parameters
-  effective_sa_email  = trimspace(coalesce(var.sa_email, "")) != "" ? trimspace(var.sa_email) : null
-  effective_folder_id = trimspace(coalesce(var.folder_id, "")) != "" ? trimspace(var.folder_id) : null
-  effective_org_id    = local.effective_folder_id == null && trimspace(coalesce(var.org_id, "")) != "" ? trimspace(var.org_id) : null
+  effective_sa_email  = try(trimspace(var.sa_email), "") != "" ? trimspace(var.sa_email) : null
+  effective_folder_id = try(trimspace(var.folder_id), "") != "" ? trimspace(var.folder_id) : null
+  effective_org_id    = local.effective_folder_id == null && try(trimspace(var.org_id), "") != "" ? trimspace(var.org_id) : null
 }
 
 # 0. Provision GCP Projects per Customer Environment
@@ -565,7 +624,7 @@ resource "google_discovery_engine_data_connector" "connectors" {
 
 # 6. Provision Unified Gemini Enterprise Search App per Customer Environment Project
 resource "google_discovery_engine_search_engine" "engines" {
-  for_each          = (var.enable_connectors || var.enable_jira_connector || var.enable_confluence_connector || var.enable_people_directory_connector) ? local.environments : {}
+  for_each          = (var.enable_connectors || var.enable_jira_connector || var.enable_confluence_connector || var.enable_people_directory_connector || var.enable_hubspot_connector) ? local.environments : {}
   project           = google_project.projects[each.key].project_id
   location          = var.location
   collection_id     = "default_collection"
@@ -595,7 +654,7 @@ resource "google_discovery_engine_search_engine" "engines" {
 
 # 7. Grant End-User Search Access Scoped to the Engine
 resource "google_discovery_engine_search_engine_iam_member" "users" {
-  for_each      = (var.enable_connectors || var.enable_jira_connector || var.enable_confluence_connector || var.enable_people_directory_connector) ? local.environments : {}
+  for_each      = (var.enable_connectors || var.enable_jira_connector || var.enable_confluence_connector || var.enable_people_directory_connector || var.enable_hubspot_connector) ? local.environments : {}
   project       = google_project.projects[each.key].project_id
   location      = var.location
   collection_id = google_discovery_engine_search_engine.engines[each.key].collection_id
@@ -606,7 +665,7 @@ resource "google_discovery_engine_search_engine_iam_member" "users" {
 
 # 8. Provision Governed Gemini Enterprise Assistant
 resource "google_discovery_engine_assistant" "default" {
-  for_each           = (var.enable_connectors || var.enable_jira_connector || var.enable_confluence_connector || var.enable_people_directory_connector) ? local.environments : {}
+  for_each           = (var.enable_connectors || var.enable_jira_connector || var.enable_confluence_connector || var.enable_people_directory_connector || var.enable_hubspot_connector) ? local.environments : {}
   project            = google_project.projects[each.key].project_id
   location           = var.location
   collection_id      = google_discovery_engine_search_engine.engines[each.key].collection_id

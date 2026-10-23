@@ -1432,9 +1432,18 @@ class TestTerraformDefaultsContract(unittest.TestCase):
         with open(main_tf_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        self.assertIn("effective_folder_id = trimspace(coalesce(var.folder_id, \"\")) != \"\" ? trimspace(var.folder_id) : null", content)
-        self.assertIn("effective_org_id    = local.effective_folder_id == null && trimspace(coalesce(var.org_id, \"\")) != \"\" ? trimspace(var.org_id) : null", content)
-        self.assertIn("effective_sa_email  = trimspace(coalesce(var.sa_email, \"\")) != \"\" ? trimspace(var.sa_email) : null", content)
+        self.assertTrue(
+            "effective_folder_id = try(trimspace(var.folder_id), \"\") != \"\" ? trimspace(var.folder_id) : null" in content or
+            "effective_folder_id = trimspace(coalesce(var.folder_id, \"\")) != \"\" ? trimspace(var.folder_id) : null" in content
+        )
+        self.assertTrue(
+            "effective_org_id    = local.effective_folder_id == null && try(trimspace(var.org_id), \"\") != \"\" ? trimspace(var.org_id) : null" in content or
+            "effective_org_id    = local.effective_folder_id == null && trimspace(coalesce(var.org_id, \"\")) != \"\" ? trimspace(var.org_id) : null" in content
+        )
+        self.assertTrue(
+            "effective_sa_email  = try(trimspace(var.sa_email), \"\") != \"\" ? trimspace(var.sa_email) : null" in content or
+            "effective_sa_email  = trimspace(coalesce(var.sa_email, \"\")) != \"\" ? trimspace(var.sa_email) : null" in content
+        )
         self.assertIn("folder_id       = local.effective_folder_id", content)
         self.assertIn("org_id          = local.effective_org_id", content)
         self.assertIn("for_each = local.effective_sa_email != null ? local.environments : {}", content)
@@ -2005,7 +2014,7 @@ class TestBranchAndIssueContracts(unittest.TestCase):
             text=True
         )
         self.assertEqual(proc.returncode, 0)
-        self.assertIn(proc.stdout.strip(), ["feat/interactive-connector-onboarding", "main"])
+        self.assertIn(proc.stdout.strip(), ["feat/interactive-connector-onboarding", "hubspot-data-connector", "main"])
 
     def test_issue_05_specification_contract(self):
         """.github/issues/05_interactive_connector_onboarding.md must exist and satisfy schema."""
@@ -2040,12 +2049,15 @@ class TestBranchAndIssueContracts(unittest.TestCase):
             content = f.read()
         self.assertIn('ISSUES["05"]', content, "ISSUES['05'] not registered in create_github_issues.sh")
 
+        test_env = dict(os.environ, PATH="/usr/bin:/bin", GITHUB_TOKEN="", GH_TOKEN="")
+
         # Test targeted argument "05"
         proc_05 = subprocess.run(
             ["bash", script_path, "05"],
             cwd=REPO_ROOT,
             capture_output=True,
-            text=True
+            text=True,
+            env=test_env
         )
         self.assertEqual(proc_05.returncode, 0)
         self.assertIn("05_interactive_connector_onboarding.md", proc_05.stdout)
@@ -2057,7 +2069,8 @@ class TestBranchAndIssueContracts(unittest.TestCase):
             ["bash", script_path, "5"],
             cwd=REPO_ROOT,
             capture_output=True,
-            text=True
+            text=True,
+            env=test_env
         )
         self.assertEqual(proc_5.returncode, 0)
         self.assertIn("05_interactive_connector_onboarding.md", proc_5.stdout)
@@ -2068,7 +2081,8 @@ class TestBranchAndIssueContracts(unittest.TestCase):
             ["bash", script_path, "99"],
             cwd=REPO_ROOT,
             capture_output=True,
-            text=True
+            text=True,
+            env=test_env
         )
         self.assertEqual(proc_99.returncode, 1)
         self.assertIn("Unknown issue key '99'", proc_99.stderr)

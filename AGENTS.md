@@ -35,6 +35,7 @@ When entering Stage 0 (`make status --json` reports `phase: 0`):
 | **Stage 2** | Domain-Wide Delegation authorization | `enable_connectors = true` in tfvars | `dwd` |
 | **Stage 2** | Atlassian Jira authorization / URI missing | Valid Jira URI & credentials configured | `jira` |
 | **Stage 2** | Atlassian Confluence authorization / URI missing | Valid Confluence URI & credentials configured | `confluence` |
+| **Stage 2** | HubSpot authorization / token missing | Valid HubSpot token & credentials configured | `hubspot` |
 | **Stage 4** | Missing billing subscription IDs | Subscription IDs set in tfvars | `subscription` |
 
 ## Phase Detection (`make status --json`)
@@ -73,6 +74,13 @@ Configure Atlassian Developer Console app or API token, set TF_VAR_jira_auth, an
 ACTION REQUIRED (Atlassian Admin): Configure Atlassian Confluence authorization.
 Run `make confluence-checklist` to view the OAuth 2.0 (3LO) callback URL, required scopes, and instance URI.
 Configure Atlassian Developer Console app or API token, set TF_VAR_confluence_auth (or reuse TF_VAR_jira_auth), and update confluence_config.instance_uri in terraform.tfvars.
+```
+
+### `hubspot`
+```text
+ACTION REQUIRED (HubSpot Admin): Configure HubSpot CRM authorization.
+Run `make hubspot-checklist` to view the connector settings and entity schema.
+Generate a Service Key in HubSpot, set TF_VAR_hubspot_auth, and set enable_hubspot_connector = true in terraform.tfvars.
 ```
 
 ### `permissions`

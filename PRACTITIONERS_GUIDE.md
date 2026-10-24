@@ -4,7 +4,7 @@
 
 # Prism — Gemini Enterprise Customer Provisioning: Deployment Requirements & Practitioner's Guide
 
-**Document Status:** Production Reference | **Repository:** [pedroccorreia/gemini-prism](https://github.com/pedroccorreia/gemini-prism) | **Target Stack:** Google Cloud Discovery Engine (Gemini Enterprise), Google Workspace, Atlassian Jira Cloud, Terraform IaC (`>= 1.5.0`)
+**Document Status:** Production Reference | **Repository:** [pedroccorreia/gemini-prism](https://github.com/pedroccorreia/gemini-prism) | **Target Stack:** Google Cloud Discovery Engine (Gemini Enterprise), Google Workspace, Atlassian Jira Cloud, Slack Enterprise, Terraform IaC (`>= 1.5.0`)
 
 > **Executive Summary:** This document is the authoritative end-to-end engineering asset for deploying **Prism: Gemini Enterprise (Vertex AI Search)** across isolated customer environments (`non-prod`, `prod`, `dev`, `pilot`, `staging`). **Part I** specifies every technical, identity, IAM, licensing, network, and third-party tenant requirement needed to deploy successfully on the first run. **Part II** provides a complete **Practitioner's Guide** detailing how to operate every Terraform module, Python automation tool, safety guard, `Makefile` target, autonomous agent hand-off gate, and Day-2 operational workflow in the repository.
 
@@ -12,7 +12,7 @@
 
 ### 1. Target Architecture & Provisioned Resource Footprint
 
-The **Prism** Infrastructure-as-Code (IaC) stack automates the creation of dedicated Google Cloud environment projects, configures Google Workspace (`GSUITE`) location-level identity and access control, wires real-time federated Google Workspace connectors alongside multi-entity Atlassian Jira connectors, provisions a unified Intranet Search Engine and Governed Enterprise Assistant, and distributes Gemini Enterprise seat licenses from a central Cloud Billing Account pool.
+The **Prism** Infrastructure-as-Code (IaC) stack automates the creation of dedicated Google Cloud environment projects, configures Google Workspace (`GSUITE`) location-level identity and access control, wires real-time federated Google Workspace connectors alongside multi-entity Atlassian Jira and federated Slack Enterprise (`v3` MCP/BAP) connectors, provisions a unified Intranet Search Engine and Governed Enterprise Assistant, and distributes Gemini Enterprise seat licenses from a central Cloud Billing Account pool.
 
 ```mermaid
 flowchart TD
@@ -20,6 +20,7 @@ flowchart TD
     WSGroup["Cloud Identity Group ({customer_id}-{env}-users)"]
     WSAdmin["Google Workspace Admin Console (DWD 21-Digit Client ID)"]
     JiraCloud["Atlassian Jira Cloud (OAuth 2.0 3LO v3 / API Token v1)"]
+    SlackTenant["Slack Enterprise / Workspace (OAuth 2.0 v3 MCP / BYO App)"]
     BillingPool["GCP Cloud Billing Account (Subscription Seat Pool)"]
   end
 
@@ -33,19 +34,23 @@ flowchart TD
   subgraph DataAndApps["Discovery Engine Connectors, Search App & Assistant"]
     WSConns["Federated Workspace Connectors (Gmail, Calendar, Drive, Chat)"]
     JiraConn["Atlassian Jira Connector (5 Entities + Optional BAP Actions)"]
+    SlackConn["Slack Connector (3 Federated Entities + MCP Actions)"]
     Engine["Unified Intranet Search App ({customer_id}-{env}-search-engine)"]
     Assistant["Governed Enterprise Assistant (default_assistant + Web Grounding)"]
   end
 
   WSAdmin -.->|"Authorizes 9 Read-Only OAuth Scopes"| SAgent
   JiraCloud -.->|"TF_VAR_jira_auth Credentials"| JiraConn
+  SlackTenant -.->|"Google-Managed or BYO OAuth 2.0"| SlackConn
   BillingPool -.->|"distributeLicenseConfig (make licenses)"| UStore
   SAgent --> WSConns
   ACL --> UStore
   ACL --> WSConns
   ACL --> JiraConn
+  ACL --> SlackConn
   WSConns --> Engine
   JiraConn --> Engine
+  SlackConn --> Engine
   Engine --> Assistant
   WSGroup -->|"roles/discoveryengine.user"| Engine
 ```
@@ -53,7 +58,7 @@ flowchart TD
 #### Core Architectural Invariants
 
 1. **Mandatory `global` Location for Workspace Federation:** The `location` variable defaults to `"global"`. Google Workspace connectors (`google_mail`, `google_calendar`, `google_drive`, `google_chat`) operate in `FEDERATED` mode (`refresh_interval = "0s"`). Queries execute in real time against Google Workspace APIs under the end-user's OAuth identity without ingesting or copying Workspace content into persistent GCP storage. Discovery Engine requires the `global` location for federated Workspace collections.
-2. **Staged Provisioning Across Human Authorization Gates:** The Google-managed Discovery Engine Service Agent (`service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com`) does not exist until the customer GCP project is created and `discoveryengine.googleapis.com` service identity generation is invoked. Consequently, provisioning is decoupled into **Stage 1 (Foundation Apply)** and **Stage 3 (Connectors, Engines & Assistants Apply)**, separated by **Stage 2 (Human Admin Authorization Gate)** so Domain-Wide Delegation (DWD) and Atlassian Jira OAuth apps can be authorized before connector creation.
+2. **Staged Provisioning Across Human Authorization Gates:** The Google-managed Discovery Engine Service Agent (`service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com`) does not exist until the customer GCP project is created and `discoveryengine.googleapis.com` service identity generation is invoked. Consequently, provisioning is decoupled into **Stage 1 (Foundation Apply)** and **Stage 3 (Connectors, Engines & Assistants Apply)**, separated by **Stage 2 (Human Admin Authorization Gate)** so Domain-Wide Delegation (DWD), Atlassian Jira OAuth apps, and Slack Enterprise configuration can be finalized before connector creation.
 3. **Multi-Layered Production Deletion Protection:** Environment keys matching `prod` or `production` automatically set `deletion_policy = "PREVENT"` on `google_project.projects`. In addition, `scripts/plan_guard.py` blocks any Terraform plan containing resource deletions or replacements (`delete` or `replace`), and `scripts/status.py` aborts immediately if `terraform.tfstate` contains projects belonging to a different customer (`CRITICAL STATE MISMATCH`).
 
 ### 2. Local Workstation & CI Runner Toolchain Requirements
@@ -70,9 +75,9 @@ Before running any deployment command, verify that the operator machine or CI ru
 | **Terraform Provider: `google-beta`** | `~> 7.41` | `7.41.0` | Required for `google_project_service_identity.discoveryengine_sa` pre-creation in Stage 1. |
 | **Terraform Provider: `local`** | `>= 2.0.0` | `2.8.0` | Emits `config/license_allocations.json` from live Terraform project outputs. |
 
-### 3. Administrative & IAM Requirements Across All 4 Control Planes
+### 3. Administrative & IAM Requirements Across All 5 Control Planes
 
-Deploying Gemini Enterprise spans four distinct administrative control planes. Every role and prerequisite listed below must be in place prior to executing the corresponding stage.
+Deploying Gemini Enterprise spans up to five distinct administrative control planes. Every role and prerequisite listed below must be in place prior to executing the corresponding stage.
 
 #### 3.1 Plane 1: Google Cloud Platform (Organization, Folder & Billing)
 
@@ -189,6 +194,20 @@ The repository supports deploying the **Atlassian Jira Data Connector** (`jira-c
 | **Runtime Secret Environment Variable (`TF_VAR_jira_auth`)** | `export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"..."}'` | `export TF_VAR_jira_auth='{"user_account":"user@example.com","api_token":"..."}'` |
 | **Static IP Allowlisting (Optional)** | Set `jira_config.static_ip_enabled = true`; allowlist the egress IPs emitted in `terraform output jira_checklist` (`static_ip_addresses`) inside [admin.atlassian.com](https://admin.atlassian.com). | Same as Option A. |
 
+#### 3.5 Plane 5: Slack Enterprise / Workspace Requirements (When `enable_slack_connector = true`)
+
+The repository supports deploying the **Slack Enterprise Data Connector** (`slack-collection`) alongside Google Workspace and Jira connectors or in a **Slack-only** deployment (`enable_connectors = false`, `enable_slack_connector = true`). By default, Prism provisions the production **`v3` (`PUBLIC_GA`) Federated + Actions** connector backed by Slack's remote MCP endpoint (`https://mcp.slack.com`) via Google Cloud Business Application Platform (BAP).
+
+| Requirement Dimension | Option A: Google-Managed OAuth 2.0 (`slack_auth_type = "OAUTH"`, empty `slack_auth`) — **Default** | Option B: BYO Slack OAuth App (`slack_auth_type = "OAUTH"` + `client_id` & `client_secret`) |
+| :--- | :--- | :--- |
+| **Connector Architecture (`v3` `PUBLIC_GA`)** | `FEDERATED` + `ACTIONS` (`destination_configs` host `https://mcp.slack.com`, `auth_key = "OAuth"`). Zero Slack data copied into persistent GCP storage; queries execute live per user. | `FEDERATED` + `ACTIONS` (`destination_configs` host `https://mcp.slack.com`, `auth_key = "ByoOAuth"`). |
+| **Provisioned Entities** | `conversation`, `message`, `file` (configurable via `slack_config.entities`, with optional channel/privacy filters `channels_include`, `channels_exclude`, `include_private_channels`, `include_dms`) | `conversation`, `message`, `file` |
+| **Slack App Setup** | None required — uses Google's pre-registered Slack OAuth application. *(Ensure your Slack Workspace / Enterprise Grid allows member app installation or pre-approves the Google app.)* | Create a custom Slack App in [api.slack.com/apps](https://api.slack.com/apps) with Redirect URL `https://vertexaisearch.cloud.google.com/oauth-redirect` and scopes listed by `make slack-checklist`. |
+| **Required `terraform.tfvars` Settings** | `enable_slack_connector = true`, `slack_config.instance_uri = "https://<workspace>.slack.com"`, and optional `slack_config.team_id = "T..."` (`T...` for Workspace or `E...` for Enterprise Grid). | Same as Option A. |
+| **Runtime Secret Environment Variable (`TF_VAR_slack_auth`)** | **Not required** (leave `TF_VAR_slack_auth` unset). | `export TF_VAR_slack_auth='{"client_id":"...","client_secret":"..."}'` *(Legacy `v1` `DATA_INGESTION` mode also supports `bot_token`.)* |
+| **End-User Authorization Flow** | Each user clicks **Sources → Connect** next to Slack once inside the Gemini Enterprise Web App (`vertexaisearch.cloud.google.com`) to authorize their individual Slack identity (`slack.com/oauth/v2/authorize`). | Same per-user **Sources → Connect** OAuth consent flow against your custom Slack App. |
+| **Static IP Allowlisting (Optional)** | Set `slack_config.static_ip_enabled = true`; allowlist the egress IPs emitted in `terraform output slack_checklist` (`static_ip_addresses`) inside Slack Enterprise Grid network settings. | Same as Option A. |
+
 ### 4. Complete Configuration Input Reference (`variables.tf` & `terraform.tfvars`)
 
 Every deployment is driven by `terraform.tfvars` (copied from `terraform.tfvars.example` and excluded from Git via `.gitignore`).
@@ -220,6 +239,10 @@ Every deployment is driven by `terraform.tfvars` (copied from `terraform.tfvars.
 | `jira_auth_type` | `string` | `"OAUTH"` | Stage 3 | Validated to be `"OAUTH"`, `"OAUTH2"`, `"BASIC_AUTH"`, `"API_TOKEN"`, or `"OAUTH_TWO_LEGGED"`. |
 | `jira_auth` | `object` | `{}` | Stage 3 | `sensitive = true` credential map (`client_id`, `client_secret`, `refresh_token`, `instance_id`, `user_account`, `api_token`). Supply via `TF_VAR_jira_auth`. |
 | `jira_config` | `object` | `{}` | Stage 3 | Jira connector settings (`instance_uri`, `instance_id`, `data_source`, `data_source_version`, `connector_modes`, `sync_mode`, `refresh_interval`, `incremental_refresh_interval`, `entities`, `static_ip_enabled`, `enable_actions`, `enabled_actions`, `project_keys_include`, `project_keys_exclude`, `auto_run_disabled`, `incremental_sync_disabled`, `extra_params`). |
+| `enable_slack_connector` | `bool` | `false` | Stage 2 -> 3 | **Must be `false` in Stage 1.** Set to `true` when provisioning the Slack Enterprise connector in Stage 3. |
+| `slack_auth_type` | `string` | `"OAUTH"` | Stage 3 | Validated to be `"OAUTH"`, `"OAUTH2"`, `"BOT_TOKEN"`, or `"API_TOKEN"`. Defaults to `"OAUTH"` (`v3` Federated + MCP Actions). |
+| `slack_auth` | `object` | `{}` | Stage 3 | `sensitive = true` optional credential map (`bot_token`, `client_id`, `client_secret`, `refresh_token`, `team_id`). Leave unset for default Google-Managed OAuth, or supply via `TF_VAR_slack_auth` for BYO OAuth App / legacy `v1` token. |
+| `slack_config` | `object` | `{}` | Stage 3 | Slack connector settings (`instance_uri`, `team_id`, `data_source`, `data_source_version`, `connector_modes`, `sync_mode`, `refresh_interval`, `incremental_refresh_interval`, `entities`, `static_ip_enabled`, `enable_actions`, `enabled_actions`, `channels_include`, `channels_exclude`, `include_private_channels`, `include_dms`, `auto_run_disabled`, `incremental_sync_disabled`, `extra_params`). |
 
 ### 5. Pre-Deployment Readiness Checklist
 
@@ -231,29 +254,30 @@ Before executing Stage 1, confirm all items below are checked:
 - [ ] Operator identity holds the **Google Workspace Groups Admin** (or Super Admin) role in [admin.google.com/ac/roles](https://admin.google.com/ac/roles).
 - [ ] A **Google Workspace Super Admin** is available for Stage 2 Domain-Wide Delegation authorization at [admin.google.com/ac/owl/domainwidedelegation](https://admin.google.com/ac/owl/domainwidedelegation).
 - [ ] If deploying Atlassian Jira (`enable_jira_connector = true`), an **Atlassian Admin** is available to register the 3LO app or API token and supply `TF_VAR_jira_auth`.
+- [ ] If deploying Slack Enterprise (`enable_slack_connector = true`), the target Slack Workspace URL (`slack_config.instance_uri`) and optional Team/Grid ID (`slack_config.team_id`) are known, and a **Slack Admin** is available if using a custom BYO Slack OAuth App (`TF_VAR_slack_auth`) or workspace app-approval policies.
 - [ ] An active **Gemini Enterprise subscription** with sufficient seat capacity exists on the Cloud Billing Account (`var.billing_account`).
 
 ## Part II: Practitioner's Guide — Using the Repository Assets
 
 ### 1. Repository Asset Inventory & Design Philosophy
 
-The `ge-provisioning` repository is architected for **deterministic, state-driven operations** by both human cloud engineers and autonomous AI agents. Rather than running ad-hoc `terraform apply` commands that risk partial failures or accidental resource deletions, every asset in the repository collaborates around a strict 6-stage state machine (`Stage 0` through `Stage 5`).
+The `gemini-prism` repository is architected for **deterministic, state-driven operations** by both human cloud engineers and autonomous AI agents. Rather than running ad-hoc `terraform apply` commands that risk partial failures or accidental resource deletions, every asset in the repository collaborates around a strict 6-stage state machine (`Stage 0` through `Stage 5`).
 
 | Repository Asset | Category | Primary Role & When Practitioners Use It |
 | :--- | :--- | :--- |
-| `Makefile` | Command Surface | Primary operator interface (`make status`, `make plan-foundation`, `make apply-foundation`, `make dwd-checklist`, `make jira-checklist`, `make plan-connectors`, `make apply-connectors`, `make licenses-dryrun`, `make licenses`, `make licenses-list`, `make verify`, `make test`). |
-| `main.tf` | Terraform IaC | Defines the 9-step resource graph across customer environments: GCP Projects, APIs, Service Agent Identity, `GSUITE` Location ACL, Cloud Identity Groups, User Stores, Workspace & Jira Data Connectors, Search Engines, Engine IAM, Governed Assistants, and `config/license_allocations.json`. |
+| `Makefile` | Command Surface | Primary operator interface (`make status`, `make plan-foundation`, `make apply-foundation`, `make dwd-checklist`, `make jira-checklist`, `make slack-checklist`, `make plan-connectors`, `make apply-connectors`, `make licenses-dryrun`, `make licenses`, `make licenses-list`, `make verify`, `make test`). |
+| `main.tf` | Terraform IaC | Defines the 9-step resource graph across customer environments: GCP Projects, APIs, Service Agent Identity, `GSUITE` Location ACL, Cloud Identity Groups, User Stores, Workspace, Jira & Slack Data Connectors, Search Engines, Engine IAM, Governed Assistants, and `config/license_allocations.json`. |
 | `variables.tf` & `terraform.tfvars.example` | Terraform IaC | Declares all input variables, validation constraints, and a sanitized template for `terraform.tfvars`. |
-| `outputs.tf` | Terraform IaC | Emits environment resource maps plus structured `dwd_checklist` and `jira_checklist` objects. |
+| `outputs.tf` | Terraform IaC | Emits environment resource maps plus structured `dwd_checklist`, `jira_checklist`, and `slack_checklist` objects. |
 | `providers.tf` & `versions.tf` | Terraform IaC | Configures `google`, `google-beta`, and `local` providers with dynamic `user_project_override` support. |
-| `scripts/status.py` | Automation Engine | Inspects live CLI tools, ADC identity, `terraform.tfvars`, and `terraform.tfstate` to detect the current deployment stage, enforce foreign state mismatch protection, and enrich DWD (`21-digit uniqueId`) and Jira (`cloudId`) checklists. |
+| `scripts/status.py` | Automation Engine | Inspects live CLI tools, ADC identity, `terraform.tfvars`, and `terraform.tfstate` to detect the current deployment stage, enforce foreign state mismatch protection, and enrich DWD (`21-digit uniqueId`), Jira (`cloudId`), and Slack checklists. |
 | `scripts/plan_guard.py` | Safety Barrier | Inspects binary `.tfplan` files via `terraform show -json` before and after plan creation. Halts with exit code `1` if any resource would be deleted or replaced unless `ALLOW_DESTROY=1` is set. |
 | `scripts/allocate_licenses.py` | License Tooling | Discovers Billing Account subscriptions (`--discover`), runs preflight project number & pool capacity assertions (`--dry-run`), distributes seats (`--distribute`), lists allocations (`--list`), retracts seats (`--retract`), and emits `license_config_names` HCL (`--emit-tfvars`). |
-| `scripts/verify.py` | Health Verifier | Audits User Stores, License Configs, Workspace & Jira Data Connectors (`STATE_ACTIVE`, `realtimeState`, `actionState`, `blockingReasons`, `errors`), Search Apps, and Assistants with configurable polling (`--wait 15m`) and `--json` reporting. |
-| `scripts/test_red.py` | Red-Team Test Suite | 38-test `unittest` harness validating negative failure paths, `--dry-run` safety, `plan_guard.py` blocking, `status.py` phase detection, `RUNBOOK.md` & `AGENTS.md` contracts, markdown link integrity, and zero customer data leaks. |
+| `scripts/verify.py` | Health Verifier | Audits User Stores, License Configs, Workspace, Jira & Slack Data Connectors (`STATE_ACTIVE`, `realtimeState`, `actionState`, `blockingReasons`, `errors`), Search Apps, and Assistants with configurable polling (`--wait 15m`) and `--json` reporting. |
+| `scripts/test_red.py` | Red-Team Test Suite | 46-test `unittest` harness validating negative failure paths, `--dry-run` safety, `plan_guard.py` blocking, `status.py` phase detection, `RUNBOOK.md` & `AGENTS.md` contracts, Terraform `v3` connector defaults, markdown link integrity, and zero customer data leaks. |
 | `bootstrap.sh` | Bootstrap Helper | Optional interactive shell script that creates a `gemini-provisioner` Service Account in a bootstrap project, grants `roles/iam.serviceAccountTokenCreator` to the active `gcloud` user, and runs Stage 1 foundation provisioning. |
 | `RUNBOOK.md` | Operational Runbook | Stage-by-stage checklist with machine-checkable `Owner`, `Preconditions`, `Do`, `Done when`, and `If it fails` contracts. |
-| `AGENTS.md` & `.agent/workflows/deploy.md` | Agent Protocol | Rules of engagement, exit-code loop, and copy-paste human escalation templates (`dwd`, `jira`, `permissions`, `subscription`, `state_mismatch`, `identity`) for AI agents. |
+| `AGENTS.md` & `.agent/workflows/deploy.md` | Agent Protocol | Rules of engagement, exit-code loop, and copy-paste human escalation templates (`dwd`, `jira`, `slack`, `permissions`, `subscription`, `state_mismatch`, `identity`) for AI agents. |
 | `.github/workflows/terraform.yml` | CI Pipeline | GitHub Actions workflow running `terraform fmt -check -diff`, `terraform init -backend=false`, `terraform validate`, and `python3 -u scripts/test_red.py` on every push and PR. |
 
 ### 2. Deep-Dive: Operating the Core Scripts & Safety Guards
@@ -267,7 +291,7 @@ stateDiagram-v2
   [*] --> Phase0: make status
   Phase0: Stage 0 — preflight_inputs (Exit 1 on blocker)
   Phase1: Stage 1 — foundation_apply (Exit 0, Agent)
-  Phase2: Stage 2 — dwd_authorization / jira_authorization (Exit 2, Human Gate)
+  Phase2: Stage 2 — dwd / jira / slack_authorization (Exit 2, Human Gate)
   Phase3: Stage 3 — connectors_and_engines_apply (Exit 0, Agent)
   Phase4Sub: Stage 4 — subscription_setup (Exit 2, Human Gate if UUIDs missing)
   Phase4Dist: Stage 4 — license_distribution (Exit 0, Agent)
@@ -275,7 +299,7 @@ stateDiagram-v2
 
   Phase0 --> Phase1: Tools + ADC + tfvars valid & no foreign projects in state
   Phase1 --> Phase2: project_ids output populated for all environments
-  Phase2 --> Phase3: enable_connectors=true (and valid Jira URI if Jira enabled)
+  Phase2 --> Phase3: Enabled connectors authorized (DWD / Jira URI / Slack URI)
   Phase3 --> Phase4Sub: Engines, Assistants & Connectors in state (UUIDs missing)
   Phase3 --> Phase4Dist: Engines, Assistants & Connectors in state (UUIDs set)
   Phase4Sub --> Phase4Dist: license_config_id & subscription_id set in tfvars
@@ -286,15 +310,15 @@ stateDiagram-v2
 ##### How `status.py` Protects and Accelerates Practitioners
 
 1. **Zero-Dependency `terraform.tfvars` Validation & Placeholder Detection:**
-   `status.py` parses strings, booleans, lists, and nested maps (`seat_allocations`, `jira_config`, `license_config_names`) directly from `terraform.tfvars`. If required keys (`customer_id`, `customer_name`, `company_domain`, `workspace_customer_id`, `billing_account`) are missing or still contain template placeholders (`example-customer`, `example.com`, `C01234567`, `0X1XXX-XXXXXX-XXXXXX`), it halts at **Stage 0** with `handoff_template: "inputs"` (`exit code 1`).
+   `status.py` parses strings, booleans, lists, and nested maps (`seat_allocations`, `jira_config`, `slack_config`, `license_config_names`) directly from `terraform.tfvars`. If required keys (`customer_id`, `customer_name`, `company_domain`, `workspace_customer_id`, `billing_account`) are missing or still contain template placeholders (`example-customer`, `example.com`, `C01234567`, `0X1XXX-XXXXXX-XXXXXX`), it halts at **Stage 0** with `handoff_template: "inputs"` (`exit code 1`).
 2. **Foreign State Mismatch Guard (`CRITICAL STATE MISMATCH`):**
    Before allowing any Terraform plan, `status.py` inspects `terraform.tfstate` for `google_project` resources. If any project ID in state does not belong to `${project_id_prefix}${customer_id}-<env>`, it halts immediately with `exit code 1` and `handoff_template: "state_mismatch"`, preventing an operator from accidentally destroying a previous customer's environment when reusing a local clone.
 3. **Live Resolution of the 21-Digit Numeric DWD Client ID (`make dwd-checklist`):**
    Google Workspace Admin Console's Domain-Wide Delegation screen requires the **21-digit numeric OAuth2 Client ID (`uniqueId`)** of the Discovery Engine Service Agent (`service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com`). Because Google-managed Service Agents are hidden from the standard Cloud Console IAM Service Accounts list, `make dwd-checklist` automatically calls:
    `POST https://serviceusage.googleapis.com/v1beta1/projects/<PROJECT_NUMBER>/services/discoveryengine.googleapis.com:generateServiceIdentity`
    and injects `"client_id": "<21-digit-uniqueId>"` into the checklist JSON for every environment.
-4. **Live Resolution of Atlassian `cloudId` (`make jira-checklist`):**
-   When `jira_config.instance_uri` is configured (e.g., `https://acme.atlassian.net`), running `make jira-checklist` queries `https://acme.atlassian.net/_edge/tenant_info` and automatically populates `"resolved_cloud_id"` and `"instance_id"` alongside the required OAuth callback URLs and scope lists.
+4. **Live Resolution of Atlassian `cloudId` (`make jira-checklist`) & Slack Checklist (`make slack-checklist`):**
+   When `jira_config.instance_uri` is configured (e.g., `https://acme.atlassian.net`), running `make jira-checklist` queries `https://acme.atlassian.net/_edge/tenant_info` and automatically populates `"resolved_cloud_id"` and `"instance_id"` alongside the required OAuth callback URLs and scope lists. Similarly, `make slack-checklist` emits the Slack `v3` Federated + Actions setup checklist (`https://mcp.slack.com` Google-Managed vs. BYO OAuth App instructions, redirect URLs, scopes, and target entities `conversation`, `message`, `file`).
 
 #### 2.2 Destructive Change Prevention with `scripts/plan_guard.py`
 
@@ -361,7 +385,7 @@ python3 scripts/verify.py --project <PROJECT_ID> --json
 `verify.py` inspects 5 resource layers per project:
 - `User Store (default_user_store)`: Verifies `Auto-Register: True` and `Auto-Update: True`.
 - `License Config (<id>)`: Verifies `ACTIVE` state and seat count.
-- `Connector (<data_source>)`: Inspects every collection's `dataConnector` (`google_mail`, `google_calendar`, `google_drive`, `google_chat`, `jira`), reporting entity count (`Entities: 5`), `Realtime` state, `ActionState`, `Blocking` reasons (e.g., `ALLOWLIST_STATIC_IP`), and any connector `Errors`.
+- `Connector (<data_source>)`: Inspects every collection's `dataConnector` (`google_mail`, `google_calendar`, `google_drive`, `google_chat`, `jira`, `slack`), reporting entity count (`Entities: 5` for Jira, `Entities: 3` for Slack), `Realtime` state, `ActionState`, `Blocking` reasons (e.g., `ALLOWLIST_STATIC_IP`), and any connector `Errors`.
 - `Search App (<engine_id>)`: Verifies the unified engine in `default_collection` and counts attached `DataStores`.
 - `Assistant (default_assistant)`: Verifies `ACTIVE` state and `Web Grounding: WEB_GROUNDING_TYPE_GOOGLE_SEARCH`.
 
@@ -373,11 +397,11 @@ Before committing any modification to `.tf` files, Python scripts, or documentat
 make test
 ```
 
-`make test` executes `python3 scripts/test_red.py`, `terraform fmt -check`, and `terraform validate`. The 38 unit and contract tests in `test_red.py` enforce:
+`make test` executes `python3 scripts/test_red.py`, `terraform fmt -check`, and `terraform validate`. The 46 unit and contract tests in `test_red.py` enforce:
 - **Negative & Adversarial API Handling:** Missing/malformed JSON configs, project number mismatches, insufficient billing pool capacity, and `--dry-run` zero-mutation guarantees in `allocate_licenses.py`.
 - **Plan Guard Enforcement:** Rejection of `["delete"]`, `["delete", "create"]`, and `["create", "delete"]` plans, and safe handling of `create`/`update`/`no-op`/`local_file`.
-- **State Machine Determinism:** All phase transitions (`Stage 0` through `Stage 5`), Jira-only vs. Workspace+Jira gating, and foreign state mismatch detection in `status.py`.
-- **Documentation & Agent Contracts:** Every `## Stage` section in `RUNBOOK.md` must contain all 5 mandatory headings (`**Owner:**`, `**Preconditions (machine-checkable):**`, `**Do:**`, `**Done when:**`, `**If it fails:**`); `AGENTS.md` must remain `<= 150` lines and include all 6 hand-off templates (`dwd`, `jira`, `permissions`, `subscription`, `state_mismatch`, `identity`); all relative links across `README.md`, `RUNBOOK.md`, `AGENTS.md`, and `GEMINI.md` must resolve; and `TestDataScrubbing` scans `git ls-files` to guarantee zero leaked customer identifiers or real billing/subscription IDs.
+- **State Machine & Connector Determinism:** All phase transitions (`Stage 0` through `Stage 5`), Workspace, Jira-only, Slack-only, and multi-connector gating, `v3` Slack Federated + MCP Actions defaults, and foreign state mismatch detection in `status.py`.
+- **Documentation & Agent Contracts:** Every `## Stage` section in `RUNBOOK.md` must contain all 5 mandatory headings (`**Owner:**`, `**Preconditions (machine-checkable):**`, `**Do:**`, `**Done when:**`, `**If it fails:**`); `AGENTS.md` must remain `<= 150` lines and include all 7 hand-off templates (`dwd`, `jira`, `slack`, `permissions`, `subscription`, `state_mismatch`, `identity`); all relative links across `README.md`, `RUNBOOK.md`, `AGENTS.md`, `GEMINI.md`, `PRACTITIONERS_GUIDE.md`, and `docs/CONNECTORS_ROADMAP.md` must resolve; and `TestDataScrubbing` scans `git ls-files` to guarantee zero leaked customer identifiers or real billing/subscription IDs.
 
 ### 3. Step-by-Step Practitioner Walkthrough (Stages 0–5)
 
@@ -393,17 +417,18 @@ make test
    ```bash
    cp terraform.tfvars.example terraform.tfvars
    ```
-3. Populate your customer values in `terraform.tfvars`, keeping `enable_connectors = false` and `enable_jira_connector = false` for Stage 1:
+3. Populate your customer values in `terraform.tfvars`, keeping `enable_connectors = false`, `enable_jira_connector = false`, and `enable_slack_connector = false` for Stage 1:
    ```yaml
-   customer_id           = "acme"
-   customer_name         = "Acme Corporation"
-   environments          = ["non-prod", "prod"]
-   company_domain        = "acme.com"
-   workspace_customer_id = "C09876543"
-   billing_account       = "012345-6789AB-CDEF01"
-   folder_id             = "123456789012"
-   enable_connectors     = false
-   enable_jira_connector = false
+   customer_id            = "acme"
+   customer_name          = "Acme Corporation"
+   environments           = ["non-prod", "prod"]
+   company_domain         = "acme.com"
+   workspace_customer_id  = "C09876543"
+   billing_account        = "012345-6789AB-CDEF01"
+   folder_id              = "123456789012"
+   enable_connectors      = false
+   enable_jira_connector  = false
+   enable_slack_connector = false
    ```
 4. Initialize Terraform and verify Stage 0 readiness:
    ```bash
@@ -425,9 +450,9 @@ make test
    ```
    Confirm `make status` exits with code `2` and displays `Current Phase : Stage 2 — Dwd Authorization`.
 
-#### Stage 2 — Human Admin Authorization Gate (Workspace DWD & Jira)
+#### Stage 2 — Human Admin Authorization Gate (Workspace DWD, Jira & Slack)
 
-1. **Authorize Google Workspace Domain-Wide Delegation:**
+1. **Authorize Google Workspace Domain-Wide Delegation (If deploying Workspace connectors):**
    ```bash
    make dwd-checklist
    ```
@@ -441,8 +466,16 @@ make test
      ```bash
      export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"<resolved_cloud_id>"}'
      ```
-3. **Unlock Stage 3:**
-   - Set `enable_connectors = true` in `terraform.tfvars`.
+3. **Configure Slack Enterprise Authorization (If deploying Slack):**
+   - In `terraform.tfvars`, set `enable_slack_connector = true`, `slack_config.instance_uri = "https://<your-workspace>.slack.com"`, and optional `slack_config.team_id = "T..."` (`T...` or `E...`).
+   - Run `make slack-checklist` to review the `v3` Federated + MCP Actions setup (`https://mcp.slack.com`).
+   - **Default (Google-Managed OAuth):** Leave `TF_VAR_slack_auth` unset — end users will connect their own Slack account once in the Gemini Enterprise Web App (**Sources → Connect**).
+   - **Optional (BYO Slack OAuth App):** Register an app at [api.slack.com/apps](https://api.slack.com/apps) with redirect URL `https://vertexaisearch.cloud.google.com/oauth-redirect` and export:
+     ```bash
+     export TF_VAR_slack_auth='{"client_id":"...","client_secret":"..."}'
+     ```
+4. **Unlock Stage 3:**
+   - Set `enable_connectors = true` in `terraform.tfvars` (if deploying Google Workspace connectors).
    - Run `make status` and confirm it reports `Stage 3 — Connectors And Engines Apply` (`exit code 0`).
 
 #### Stage 3 — Connectors, Search Engines & Governed Assistants Apply
@@ -491,7 +524,9 @@ make test
 2. Complete Human UAT:
    - Add pilot test users to `{customer_id}-{env}-users@{company_domain}` in [Google Workspace Admin Console](https://admin.google.com).
    - Wait **1–3 minutes** for Cloud Identity group membership and User Store license auto-registration to propagate.
-   - Open the Vertex AI Search web app URL in an Incognito browser window as a pilot user and verify federated search across Gmail, Drive, Calendar, Chat, and Jira issues, as well as conversational answers from `default_assistant`.
+   - Open the Gemini Enterprise Web App URL in an Incognito browser window as a pilot user.
+   - **If Slack (`enable_slack_connector = true`) is deployed:** Click **Sources** in the prompt bar, click **Connect** next to **Slack** once to complete per-user Slack OAuth consent (`slack.com/oauth/v2/authorize`), and start a **New chat** session so the assistant loads the authorized Slack MCP skill cleanly.
+   - Verify federated search and cited conversational answers across Gmail, Drive, Calendar, Chat, Jira issues, and Slack channels/messages from `default_assistant`.
 
 ### 4. Practitioner Troubleshooting & Day-2 Playbooks
 
@@ -500,6 +535,7 @@ make test
 | `CRITICAL STATE MISMATCH: Local state contains foreign projects` | `terraform.tfstate` in the working directory belongs to a different `customer_id`. | **Never force-apply.** Move or back up the previous customer's `terraform.tfstate` and `terraform.tfvars` (or switch Terraform workspaces) before running `make status`. |
 | `google_cloud_identity_group.users: Error 403: Forbidden` | The user authenticated in `gcloud auth application-default login` lacks the Workspace **Groups Admin** role. | Grant **Groups Admin** to the operator in [admin.google.com/ac/roles](https://admin.google.com/ac/roles), re-run `gcloud auth application-default login`, and re-run `make apply-foundation`. |
 | `google_discovery_engine_data_connector: PERMISSION_DENIED` or `unauthorized_client` | Workspace Domain-Wide Delegation OAuth token propagation delay (typically 5–15 minutes) or missing scope. | Wait 5 minutes and retry `make apply-connectors`. If it persists past 15 minutes, run `make dwd-checklist` and verify the 21-digit `client_id` and all 9 scopes in [admin.google.com/ac/owl/domainwidedelegation](https://admin.google.com/ac/owl/domainwidedelegation). |
-| `google_discovery_engine_assistant.default: Error 409: Already Exists` | Creating a search engine with `SEARCH_ADD_ON_LLM` automatically creates `default_assistant` on the backend. | Import the existing assistant into Terraform state:<br/>`terraform import 'google_discovery_engine_assistant.default["<env>"]' projects/<PROJECT_ID>/locations/global/collections/default_collection/engines/<ENGINE_ID>/assistants/default_assistant`<br/>Then re-run `make plan-connectors && make apply-connectors`. |
-| `verify.py` reports `[WARN] Connector (jira) ... Blocking: ALLOWLIST_STATIC_IP` | The target Jira Cloud instance enforces IP allowlisting and is blocking Discovery Engine egress IPs. | Set `jira_config.static_ip_enabled = true` in `terraform.tfvars`, run `make plan-connectors && make apply-connectors`, inspect `static_ip_addresses` in `make jira-checklist`, and allowlist those IPs in [admin.atlassian.com](https://admin.atlassian.com). |
+| `google_discovery_engine_assistant.default: Error 400 / 409 (Only one assistant / Already Exists)` | Creating a search engine with `SEARCH_ADD_ON_LLM` automatically creates `default_assistant` on the backend. | Import the existing assistant into Terraform state:<br/>`terraform import 'google_discovery_engine_assistant.default["<env>"]' projects/<PROJECT_ID>/locations/global/collections/default_collection/engines/<ENGINE_ID>/assistants/default_assistant`<br/>Then re-run `make plan-connectors && make apply-connectors`. |
+| `verify.py` reports `[WARN] Connector (jira / slack) ... Blocking: ALLOWLIST_STATIC_IP` | The target Jira Cloud or Slack Enterprise Grid tenant enforces IP allowlisting and is blocking Discovery Engine egress IPs. | Set `static_ip_enabled = true` in `jira_config` / `slack_config` in `terraform.tfvars`, run `make plan-connectors && make apply-connectors`, inspect `static_ip_addresses` in `make jira-checklist` / `make slack-checklist`, and allowlist those IPs in the tenant admin console. |
+| Assistant does not draw answers from Slack on first query | Third-party federated connectors start unselected in the Web App until the user completes per-user OAuth, or the chat session started before authorization. | In the Gemini Enterprise Web App, open **Sources**, click **Connect** next to **Slack** to complete OAuth, then click **New chat** and ask your question in a fresh conversation. |
 | `Preflight assertion failed: Insufficient license seats in billing pool` | Total seats in `var.seat_allocations` exceed `availableLicenseCount` on the Cloud Billing Account. | Either reduce `seat_allocations` in `terraform.tfvars` (and re-run `make apply-connectors`), retract unused seats from older projects via `python3 scripts/allocate_licenses.py --retract --target-project <OLD_PROJECT_ID>`, or increase subscription seats in Cloud Console Billing. |

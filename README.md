@@ -13,13 +13,13 @@
 
 # Prism — Gemini Enterprise Customer Provisioning IaC
 
-> **Refracting enterprise knowledge—Google Workspace, Atlassian Jira, and Cloud Identity—into one governed Gemini Enterprise assistant.**
+> **Refracting enterprise knowledge—Google Workspace, Atlassian Jira, Slack Enterprise, and Cloud Identity—into one governed Gemini Enterprise assistant.**
 
 **Prism** is a production-grade Terraform Infrastructure as Code (IaC) and autonomous agent orchestration engine that provisions, connects, and licenses **Google Gemini Enterprise (Vertex AI Search)** across isolated customer environments (`non-prod`, `prod`, `dev`, `pilot`).
 
 ### Optical Convergence Architecture
-Just as an optical prism unifies disparate wavelengths into a single beam, Prism converges five distinct enterprise data streams through five guarded deployment stages:
-- **5 Enterprise Input Rays:** Gmail, Google Calendar, Google Drive, Google Chat, and Atlassian Jira.
+Just as an optical prism unifies disparate wavelengths into a single beam, Prism converges six distinct enterprise data streams through five guarded deployment stages:
+- **6 Enterprise Input Rays:** Gmail, Google Calendar, Google Drive, Google Chat, Atlassian Jira, and Slack Enterprise.
 - **The Prism (IaC Engine):** Staged Terraform foundation, Domain-Wide Delegation (DWD), `GSUITE` location ACLs, and non-destructive plan guards (`plan_guard.py`).
 - **The Gemini Apex Spark:** Unified Intranet Search Engine and Governed Enterprise Assistant (`google_discovery_engine_assistant`).
 
@@ -31,10 +31,10 @@ It deploys:
 - **User Store with Auto-Registration** (`google_discovery_engine_user_store`).
 - **Federated Workspace Connectors** (`google_mail`, `google_calendar`, `google_drive`, `google_chat`).
 - **Atlassian Jira Data Connector** with multi-entity data stores (`project`, `issue`, `attachment`, `comment`, `worklog`) and optional Action/BAP integration.
-- **Slack Enterprise Data Connector** (`slack-collection`) indexing channels, messages, threads, canvases, and files with channel allowlist/blocklist privacy controls.
+- **Slack Enterprise Data Connector** (`slack-collection`) with real-time federated `v3` search (`conversation`, `message`, `file`), remote MCP actions (`https://mcp.slack.com`), Google-managed or BYO OAuth 2.0, and channel inclusion/exclusion privacy filters.
 - **Unified Intranet Search App & Governed Assistant** (`google_discovery_engine_search_engine`, `google_discovery_engine_assistant`).
 - **Automated Seat Distribution & Verification** tooling via `Makefile`.
-- **Planned Enterprise Connectors Roadmap:** Prioritized pipeline tracking [Confluence (P1), Slack (P2), HubSpot (P3), and People Directory (P4)](docs/CONNECTORS_ROADMAP.md).
+- **Enterprise Connectors Roadmap:** Shipped Workspace, Jira, and Slack (`v1.2.0`), plus prioritized backlog for [Confluence (P1), HubSpot (P3), and People Directory (P4)](docs/CONNECTORS_ROADMAP.md).
 
 ---
 
@@ -46,6 +46,7 @@ flowchart TD
     WSGroup["Cloud Identity Group<br/><code>{customer}-{env}-users@{domain}</code>"]
     WSAdmin["Google Workspace Admin Console<br/>(DWD API Client Authorization)"]
     JiraTenant["Atlassian Jira Cloud<br/>(OAuth 2.0 3LO / API Token)"]
+    SlackTenant["Slack Enterprise / Workspace<br/>(OAuth 2.0 / Remote MCP)"]
   end
 
   subgraph GCPFoundation["GCP Customer Environment Project ({customer}-{env})"]
@@ -55,21 +56,24 @@ flowchart TD
     UStore["User Store: default_user_store<br/>(Auto-Register: ON)"]
   end
 
-  subgraph ConnectorsAndEngine["Workspace & Jira Connectors & Search Engine"]
+  subgraph ConnectorsAndEngine["Workspace, Jira & Slack Connectors & Search Engine"]
     Conn1["Gmail Connector"]
     Conn2["Calendar Connector"]
     Conn3["Drive Connector"]
     Conn4["Chat Connector"]
     ConnJira["Jira Connector<br/>(project, issue, comment, attachment, worklog)"]
+    ConnSlack["Slack Connector<br/>(conversation, message, file + MCP Actions)"]
     Engine["Search App: {customer}-{env}-search-engine"]
     Assist["Governed Assistant: default_assistant"]
   end
 
   WSAdmin -.->|Authorizes Scopes| SAgent
   JiraTenant -.->|OAuth 2.0 / Token| ConnJira
+  SlackTenant -.->|OAuth 2.0 / MCP| ConnSlack
   SAgent --> Conn1 & Conn2 & Conn3 & Conn4
   Conn1 & Conn2 & Conn3 & Conn4 --> Engine
   ConnJira --> Engine
+  ConnSlack --> Engine
   Engine --> Assist
   WSGroup -->|roles/discoveryengine.user| Engine
 ```

@@ -864,27 +864,55 @@ class TestStatusPhaseDetection(unittest.TestCase):
             "workspace_customer_id": "C09999999",
             "billing_account": "012345-6789AB-CDEF01",
             "enable_slack_connector": True,
-            "slack_auth_type": "BOT_TOKEN",
+            "slack_auth_type": "OAUTH",
             "slack_config": {
                 "instance_uri": "https://custom.slack.com",
                 "team_id": "T01234567",
                 "include_private_channels": False,
                 "enable_actions": True,
                 "channels_include": ["C01111111", "C02222222"],
-                "entities": ["channel", "message", "thread", "canvas", "file"]
+                "entities": ["conversation", "message", "file"]
             }
         }
         tfvars_path = self._create_tfvars(raw_tfvars)
         parsed = status_module.parse_tfvars(tfvars_path)
         self.assertIsNotNone(parsed)
-        self.assertEqual(parsed.get("slack_auth_type"), "BOT_TOKEN")
+        self.assertEqual(parsed.get("slack_auth_type"), "OAUTH")
         cfg = parsed.get("slack_config", {})
         self.assertEqual(cfg.get("instance_uri"), "https://custom.slack.com")
         self.assertEqual(cfg.get("team_id"), "T01234567")
         self.assertIs(cfg.get("include_private_channels"), False)
         self.assertIs(cfg.get("enable_actions"), True)
         self.assertEqual(cfg.get("channels_include"), ["C01111111", "C02222222"])
-        self.assertEqual(cfg.get("entities"), ["channel", "message", "thread", "canvas", "file"])
+        self.assertEqual(cfg.get("entities"), ["conversation", "message", "file"])
+
+    @patch("subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "terraform"))
+    def test_print_slack_checklist_fallback_defaults(self, _mock_tf):
+        """print_slack_checklist fallback must emit v3 OAUTH and conversation/message/file entities."""
+        import io
+        from contextlib import redirect_stdout
+
+        prev_cwd = os.getcwd()
+        os.chdir(self.temp_dir.name)
+        try:
+            self._create_tfvars({
+                "customer_id": "testcust",
+                "environments": ["prod"],
+                "slack_config": {
+                    "instance_uri": "https://custom.slack.com",
+                    "team_id": "T01234567"
+                }
+            })
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                status_module.print_slack_checklist()
+            out = json.loads(buf.getvalue())
+            self.assertIn("prod", out)
+            self.assertEqual(out["prod"]["auth_type"], "OAUTH")
+            self.assertEqual(out["prod"]["data_source_version"], 3)
+            self.assertEqual(out["prod"]["entities"], ["conversation", "message", "file"])
+        finally:
+            os.chdir(prev_cwd)
 
 
 class TestVerifyConnectors(unittest.TestCase):
@@ -1013,7 +1041,7 @@ class TestVerifyConnectors(unittest.TestCase):
 
     @patch("scripts.verify.make_request")
     def test_verify_check_data_connectors_multi_entity_slack(self, mock_make_request):
-        """check_data_connectors must inspect multi-entity Slack connector and surface entities count."""
+        """check_data_connectors must inspect multi-entity Slack v3 federated connector and surface entities count."""
         def side_effect(url, **kwargs):
             if url.endswith("/collections"):
                 return {
@@ -1025,13 +1053,11 @@ class TestVerifyConnectors(unittest.TestCase):
                 return {
                     "name": "projects/test-proj/locations/global/collections/slack-collection/dataConnector",
                     "dataSource": "slack",
-                    "state": "STATE_ACTIVE",
-                    "realtimeState": "STATE_ACTIVE",
+                    "state": "ACTIVE",
+                    "actionState": "ACTIVE",
                     "entities": [
-                        {"entityName": "channel"},
+                        {"entityName": "conversation"},
                         {"entityName": "message"},
-                        {"entityName": "thread"},
-                        {"entityName": "canvas"},
                         {"entityName": "file"}
                     ]
                 }
@@ -1043,9 +1069,9 @@ class TestVerifyConnectors(unittest.TestCase):
         self.assertEqual(len(results), 1)
         component, status, details = results[0]
         self.assertIn("Connector (slack)", component)
-        self.assertEqual(status, "STATE_ACTIVE")
-        self.assertIn("Entities: 5", details)
-        self.assertIn("Realtime: STATE_ACTIVE", details)
+        self.assertEqual(status, "ACTIVE")
+        self.assertIn("Entities: 3", details)
+        self.assertIn("ActionState: ACTIVE", details)
 
 
 class TestDocumentationContracts(unittest.TestCase):
@@ -1079,7 +1105,7 @@ class TestDocumentationContracts(unittest.TestCase):
                 )
 
     def test_agents_md_contract(self):
-        """AGENTS.md must exist, be <= 150 lines, and contain all 5 hand-off templates."""
+        """AGENTS.md must exist, be <= 150 lines, and contain all 7 hand-off templates."""
         agents_path = os.path.join(REPO_ROOT, "AGENTS.md")
         self.assertTrue(os.path.exists(agents_path), "AGENTS.md must exist")
 
@@ -1095,7 +1121,7 @@ class TestDocumentationContracts(unittest.TestCase):
 
     def test_relative_markdown_links(self):
         """Relative file links across documentation must resolve to existing files."""
-        doc_files = ["README.md", "RUNBOOK.md", "AGENTS.md", "GEMINI.md"]
+        doc_files = ["README.md", "RUNBOOK.md", "AGENTS.md", "GEMINI.md", "PRACTITIONERS_GUIDE.md", "docs/CONNECTORS_ROADMAP.md"]
         link_pattern = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
 
         for doc in doc_files:
@@ -1118,7 +1144,7 @@ class TestDocumentationContracts(unittest.TestCase):
                 if clean_target.startswith("file://"):
                     resolved_path = clean_target.replace("file://", "")
                 else:
-                    resolved_path = os.path.normpath(os.path.join(REPO_ROOT, clean_target))
+                    resolved_path = os.path.normpath(os.path.join(os.path.dirname(doc_path), clean_target))
 
                 self.assertTrue(
                     os.path.exists(resolved_path),
@@ -1149,13 +1175,30 @@ class TestTerraformDefaultsContract(unittest.TestCase):
         with open(main_tf_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        self.assertIn("effective_folder_id = trimspace(coalesce(var.folder_id, \"\")) != \"\" ? trimspace(var.folder_id) : null", content)
-        self.assertIn("effective_org_id    = local.effective_folder_id == null && trimspace(coalesce(var.org_id, \"\")) != \"\" ? trimspace(var.org_id) : null", content)
-        self.assertIn("effective_sa_email  = trimspace(coalesce(var.sa_email, \"\")) != \"\" ? trimspace(var.sa_email) : null", content)
+        self.assertIn("effective_folder_id = trimspace(try(coalesce(var.folder_id), \"\")) != \"\" ? trimspace(var.folder_id) : null", content)
+        self.assertIn("effective_org_id    = local.effective_folder_id == null && trimspace(try(coalesce(var.org_id), \"\")) != \"\" ? trimspace(var.org_id) : null", content)
+        self.assertIn("effective_sa_email  = trimspace(try(coalesce(var.sa_email), \"\")) != \"\" ? trimspace(var.sa_email) : null", content)
         self.assertIn("folder_id       = local.effective_folder_id", content)
         self.assertIn("org_id          = local.effective_org_id", content)
         self.assertIn("for_each = local.effective_sa_email != null ? local.environments : {}", content)
         self.assertIn("member   = \"serviceAccount:${local.effective_sa_email}\"", content)
+
+    def test_slack_v3_federated_defaults_contract(self):
+        """Slack connector defaults must align with Discovery Engine v3 PUBLIC_GA Federated + Actions spec."""
+        with open(os.path.join(REPO_ROOT, "variables.tf"), "r", encoding="utf-8") as f:
+            vars_content = f.read()
+        with open(os.path.join(REPO_ROOT, "terraform.tfvars.example"), "r", encoding="utf-8") as f:
+            example_content = f.read()
+        with open(os.path.join(REPO_ROOT, "main.tf"), "r", encoding="utf-8") as f:
+            main_content = f.read()
+
+        self.assertTrue(re.search(r'^\s*enable_slack_connector\s*=\s*false\b', example_content, re.MULTILINE))
+        self.assertTrue(re.search(r'^\s*slack_auth_type\s*=\s*"OAUTH"', example_content, re.MULTILINE))
+        self.assertIn('entities                     = optional(list(string), ["conversation", "message", "file"])', vars_content)
+        self.assertIn('incremental_refresh_interval = optional(string, "10800s")', vars_content)
+        self.assertIn('"unused_auth_param" = "unused"', main_content)
+        self.assertIn('https://mcp.slack.com', main_content)
+        self.assertIn('"ByoOAuth"', main_content)
 
 
 class TestVerifyWaitParsing(unittest.TestCase):

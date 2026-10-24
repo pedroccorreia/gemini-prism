@@ -102,11 +102,10 @@ locals {
     "OAUTH_TWO_LEGGED" = "OAUTH_TWO_LEGGED"
   }[var.jira_auth_type]
 
-  effective_jira_instance_id = coalesce(
+  effective_jira_instance_id = try(coalesce(
     trimspace(try(var.jira_auth.instance_id, "")),
-    trimspace(try(var.jira_config.instance_id, "")),
-    ""
-  )
+    trimspace(try(var.jira_config.instance_id, ""))
+  ), "")
 
   # Default data source version based on auth type: 3 for OAuth, 1 for Basic Auth (API Token)
   default_jira_version   = local.effective_jira_auth_type == "BASIC_AUTH" ? 1 : 3
@@ -149,24 +148,24 @@ locals {
       static_ip_enabled            = var.jira_config.static_ip_enabled
       auto_run_disabled            = var.jira_config.auto_run_disabled
       incremental_sync_disabled    = var.jira_config.incremental_sync_disabled
-      instance_uri                 = coalesce(var.jira_config.instance_uri, "")
+      instance_uri                 = try(coalesce(var.jira_config.instance_uri), "")
       params = merge(
-        var.jira_config.instance_uri != "" ? { "instance_uri" = var.jira_config.instance_uri } : {},
+        try(coalesce(var.jira_config.instance_uri), "") != "" ? { "instance_uri" = var.jira_config.instance_uri } : {},
         local.effective_jira_instance_id != "" ? { "instance_id" = local.effective_jira_instance_id } : {},
         { "auth_type" = local.effective_jira_auth_type },
-        var.jira_auth.client_id != "" ? { "client_id" = var.jira_auth.client_id } : {},
-        var.jira_auth.client_secret != "" ? { "client_secret" = var.jira_auth.client_secret } : {},
-        var.jira_auth.refresh_token != "" ? { "refresh_token" = var.jira_auth.refresh_token } : {},
-        var.jira_auth.user_account != "" ? { "user_account" = var.jira_auth.user_account } : {},
-        var.jira_auth.api_token != "" ? { "api_token" = var.jira_auth.api_token } : {},
+        trimspace(try(coalesce(var.jira_auth.client_id), "")) != "" ? { "client_id" = var.jira_auth.client_id } : {},
+        trimspace(try(coalesce(var.jira_auth.client_secret), "")) != "" ? { "client_secret" = var.jira_auth.client_secret } : {},
+        trimspace(try(coalesce(var.jira_auth.refresh_token), "")) != "" ? { "refresh_token" = var.jira_auth.refresh_token } : {},
+        trimspace(try(coalesce(var.jira_auth.user_account), "")) != "" ? { "user_account" = var.jira_auth.user_account } : {},
+        trimspace(try(coalesce(var.jira_auth.api_token), "")) != "" ? { "api_token" = var.jira_auth.api_token } : {},
         coalesce(var.jira_config.extra_params, {})
       )
       action_params = merge(
-        var.jira_config.instance_uri != "" ? { "instance_uri" = var.jira_config.instance_uri } : {},
+        try(coalesce(var.jira_config.instance_uri), "") != "" ? { "instance_uri" = var.jira_config.instance_uri } : {},
         local.effective_jira_instance_id != "" ? { "instance_id" = local.effective_jira_instance_id } : {},
         { "auth_type" = "OAUTH" },
-        var.jira_auth.client_id != "" ? { "client_id" = var.jira_auth.client_id } : {},
-        var.jira_auth.client_secret != "" ? { "client_secret" = var.jira_auth.client_secret } : {}
+        trimspace(try(coalesce(var.jira_auth.client_id), "")) != "" ? { "client_id" = var.jira_auth.client_id } : {},
+        trimspace(try(coalesce(var.jira_auth.client_secret), "")) != "" ? { "client_secret" = var.jira_auth.client_secret } : {}
       )
       enable_actions  = coalesce(var.jira_config.enable_actions, false)
       enabled_actions = coalesce(var.jira_config.enabled_actions, [])
@@ -182,23 +181,23 @@ locals {
     "API_TOKEN"  = "API_TOKEN"
   }[var.slack_auth_type]
 
-  effective_slack_team_id = coalesce(
+  effective_slack_team_id = try(coalesce(
     trimspace(try(var.slack_auth.team_id, "")),
-    trimspace(try(var.slack_config.team_id, "")),
-    ""
-  )
+    trimspace(try(var.slack_config.team_id, ""))
+  ), "")
 
-  effective_slack_token = coalesce(
+  effective_slack_token = try(coalesce(
     trimspace(try(var.slack_auth.bot_token, "")),
     trimspace(try(var.slack_auth.user_token, "")),
-    trimspace(try(var.slack_auth.api_token, "")),
-    ""
-  )
+    trimspace(try(var.slack_auth.api_token, ""))
+  ), "")
 
-  # Default data source version based on auth type: 1 for Bot/API Token ingestion, 3 for OAuth 2.0 federated/actions
-  default_slack_version     = local.effective_slack_auth_type == "API_TOKEN" ? 1 : 3
+  # Default data source version: Discovery Engine production pins "slack" to v3 (PUBLIC_GA Federated + Actions)
+  default_slack_version     = 3
   effective_slack_version   = coalesce(var.slack_config.data_source_version, local.default_slack_version)
-  effective_slack_sync_mode = upper(coalesce(var.slack_config.sync_mode, "PERIODIC")) == "INCREMENTAL" ? "PERIODIC" : coalesce(var.slack_config.sync_mode, "PERIODIC")
+  effective_slack_modes     = coalesce(var.slack_config.enable_actions, false) ? distinct(concat(coalesce(var.slack_config.connector_modes, ["FEDERATED"]), ["ACTIONS"])) : coalesce(var.slack_config.connector_modes, ["FEDERATED"])
+  is_slack_federated        = contains(local.effective_slack_modes, "FEDERATED") || local.effective_slack_version >= 3
+  effective_slack_sync_mode = local.is_slack_federated ? null : (upper(coalesce(var.slack_config.sync_mode, "PERIODIC")) == "INCREMENTAL" ? "PERIODIC" : coalesce(var.slack_config.sync_mode, "PERIODIC"))
 
   slack_entity_params = merge(
     length(coalesce(var.slack_config.channels_include, [])) > 0 ? {
@@ -216,9 +215,7 @@ locals {
     } : {},
     coalesce(var.slack_config.include_dms, false) ? {
       "include_dms" = true
-    } : {
-      "exclude_dms" = true
-    }
+    } : {}
   )
 
   # Slack Enterprise connector per environment (when enabled)
@@ -228,46 +225,42 @@ locals {
       env_key             = env_key
       connector           = "slack"
       data_source         = coalesce(var.slack_config.data_source, "slack")
-      data_source_version = local.effective_slack_version
+      data_source_version = local.is_slack_federated ? null : local.effective_slack_version
       display_name        = "Slack Enterprise"
       collection_id       = "slack-collection"
       project_id          = google_project.projects[env_key].project_id
       entities = [
-        for e in coalesce(var.slack_config.entities, ["channel", "message", "thread", "canvas", "file"]) : {
+        for e in coalesce(var.slack_config.entities, ["conversation", "message", "file"]) : {
           entity_name = e
           params      = (contains(["channel", "conversation"], e) && length(local.slack_entity_params) > 0) ? jsonencode(local.slack_entity_params) : null
         }
       ]
-      connector_modes              = coalesce(var.slack_config.enable_actions, false) ? distinct(concat(coalesce(var.slack_config.connector_modes, ["DATA_INGESTION"]), ["ACTIONS"])) : coalesce(var.slack_config.connector_modes, ["DATA_INGESTION"])
+      connector_modes              = local.effective_slack_modes
       sync_mode                    = local.effective_slack_sync_mode
-      refresh_interval             = coalesce(var.slack_config.refresh_interval, "43200s")
-      incremental_refresh_interval = var.slack_config.incremental_refresh_interval
+      refresh_interval             = local.is_slack_federated ? "86400s" : coalesce(var.slack_config.refresh_interval, "43200s")
+      incremental_refresh_interval = local.is_slack_federated ? null : var.slack_config.incremental_refresh_interval
       static_ip_enabled            = var.slack_config.static_ip_enabled
-      auto_run_disabled            = var.slack_config.auto_run_disabled
-      incremental_sync_disabled    = var.slack_config.incremental_sync_disabled
-      instance_uri                 = coalesce(var.slack_config.instance_uri, "")
-      params = merge(
-        var.slack_config.instance_uri != "" ? { "instance_uri" = var.slack_config.instance_uri } : {},
-        local.effective_slack_team_id != "" ? {
-          "instance_id" = local.effective_slack_team_id
-          "team_id"     = local.effective_slack_team_id
-        } : {},
+      auto_run_disabled            = local.is_slack_federated ? null : var.slack_config.auto_run_disabled
+      incremental_sync_disabled    = local.is_slack_federated ? null : var.slack_config.incremental_sync_disabled
+      instance_uri                 = try(coalesce(var.slack_config.instance_uri), "")
+      params = local.is_slack_federated ? merge(
+        { "unused_auth_param" = "unused" },
+        coalesce(var.slack_config.extra_params, {})
+        ) : merge(
         { "auth_type" = local.effective_slack_auth_type },
-        local.effective_slack_token != "" ? {
-          "auth_token" = local.effective_slack_token
-          "bot_token"  = local.effective_slack_token
-        } : {},
-        var.slack_auth.client_id != "" ? { "client_id" = var.slack_auth.client_id } : {},
-        var.slack_auth.client_secret != "" ? { "client_secret" = var.slack_auth.client_secret } : {},
-        var.slack_auth.refresh_token != "" ? { "refresh_token" = var.slack_auth.refresh_token } : {},
+        local.effective_slack_team_id != "" ? { "instance_id" = local.effective_slack_team_id } : {},
+        local.effective_slack_token != "" ? { "auth_token" = local.effective_slack_token } : {},
         coalesce(var.slack_config.extra_params, {})
       )
-      action_params = merge(
-        local.effective_slack_team_id != "" ? { "team_id" = local.effective_slack_team_id } : {},
-        { "auth_type" = "OAUTH" },
-        var.slack_auth.client_id != "" ? { "client_id" = var.slack_auth.client_id } : {},
-        var.slack_auth.client_secret != "" ? { "client_secret" = var.slack_auth.client_secret } : {}
-      )
+      action_params = trimspace(try(coalesce(var.slack_auth.client_id), "")) != "" ? {
+        "auth_type"     = "OAUTH"
+        "auth_key"      = "ByoOAuth"
+        "client_id"     = var.slack_auth.client_id
+        "client_secret" = try(coalesce(var.slack_auth.client_secret), "")
+        } : {
+        "auth_type" = "OAUTH"
+        "auth_key"  = "OAuth"
+      }
       enable_actions  = coalesce(var.slack_config.enable_actions, false)
       enabled_actions = coalesce(var.slack_config.enabled_actions, [])
     }
@@ -293,9 +286,9 @@ locals {
   ]
 
   # Normalized optional parameters
-  effective_sa_email  = trimspace(coalesce(var.sa_email, "")) != "" ? trimspace(var.sa_email) : null
-  effective_folder_id = trimspace(coalesce(var.folder_id, "")) != "" ? trimspace(var.folder_id) : null
-  effective_org_id    = local.effective_folder_id == null && trimspace(coalesce(var.org_id, "")) != "" ? trimspace(var.org_id) : null
+  effective_sa_email  = trimspace(try(coalesce(var.sa_email), "")) != "" ? trimspace(var.sa_email) : null
+  effective_folder_id = trimspace(try(coalesce(var.folder_id), "")) != "" ? trimspace(var.folder_id) : null
+  effective_org_id    = local.effective_folder_id == null && trimspace(try(coalesce(var.org_id), "")) != "" ? trimspace(var.org_id) : null
 }
 
 # 0. Provision GCP Projects per Customer Environment
@@ -413,17 +406,25 @@ resource "google_discovery_engine_data_connector" "connectors" {
   }
 
   dynamic "destination_configs" {
-    for_each = (each.value.connector != "slack" && each.value.instance_uri != "" && (each.value.enable_actions || contains(each.value.connector_modes, "FEDERATED"))) ? [each.value.instance_uri] : []
+    for_each = (
+      each.value.connector == "slack" && contains(each.value.connector_modes, "FEDERATED")
+      ? [{ key = "host_address", host = "https://mcp.slack.com" }]
+      : (
+        each.value.connector != "slack" && each.value.instance_uri != "" && (each.value.enable_actions || contains(each.value.connector_modes, "FEDERATED"))
+        ? [{ key = "url", host = each.value.instance_uri }]
+        : []
+      )
+    )
     content {
-      key = "url"
+      key = destination_configs.value.key
       destinations {
-        host = destination_configs.value
+        host = destination_configs.value.host
       }
     }
   }
 
   dynamic "action_config" {
-    for_each = each.value.enable_actions ? [1] : []
+    for_each = (each.value.enable_actions || (each.value.connector == "slack" && contains(each.value.connector_modes, "FEDERATED"))) ? [1] : []
     content {
       create_bap_connection = true
       action_params         = each.value.action_params
@@ -512,7 +513,7 @@ resource "google_discovery_engine_assistant" "default" {
 resource "local_file" "license_allocations" {
   filename = "${path.module}/config/license_allocations.json"
   content = jsonencode({
-    licensing_project = coalesce(var.billing_project, try(values(google_project.projects)[0].project_id, ""))
+    licensing_project = try(coalesce(var.billing_project, try(values(google_project.projects)[0].project_id, "")), "")
     billing_account   = var.billing_account
     license_config_id = var.license_config_id
     subscription_id   = var.subscription_id

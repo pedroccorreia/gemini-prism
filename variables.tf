@@ -195,8 +195,8 @@ variable "enable_slack_connector" {
 
 variable "slack_auth_type" {
   type        = string
-  description = "Authentication method for Slack connector: 'BOT_TOKEN' (or 'API_TOKEN' / 'USER_TOKEN') for v1 ingestion, or 'OAUTH' (or 'OAUTH2') for v3 federated/actions"
-  default     = "BOT_TOKEN"
+  description = "Authentication method for Slack connector: 'OAUTH' (or 'OAUTH2') for v3 federated/actions (Google-managed or BYO app), or 'BOT_TOKEN' ('API_TOKEN' / 'USER_TOKEN') for legacy v1 ingestion"
+  default     = "OAUTH"
 
   validation {
     condition     = contains(["OAUTH", "OAUTH2", "BOT_TOKEN", "USER_TOKEN", "API_TOKEN"], var.slack_auth_type)
@@ -225,11 +225,11 @@ variable "slack_config" {
     team_id                      = optional(string, "")
     data_source                  = optional(string, "slack")
     data_source_version          = optional(number, null)
-    connector_modes              = optional(list(string), ["DATA_INGESTION"])
+    connector_modes              = optional(list(string), ["FEDERATED"])
     sync_mode                    = optional(string, "PERIODIC")
     refresh_interval             = optional(string, "43200s")
-    incremental_refresh_interval = optional(string, "1800s")
-    entities                     = optional(list(string), ["channel", "message", "thread", "canvas", "file"])
+    incremental_refresh_interval = optional(string, "10800s")
+    entities                     = optional(list(string), ["conversation", "message", "file"])
     channels_include             = optional(list(string), [])
     channels_exclude             = optional(list(string), [])
     include_private_channels     = optional(bool, false)

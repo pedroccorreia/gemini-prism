@@ -55,8 +55,8 @@ Configure Atlassian Developer Console app or API token, set TF_VAR_jira_auth, an
 ### `slack`
 ```text
 ACTION REQUIRED (Slack Admin): Configure Slack Enterprise authorization.
-Run `make slack-checklist` to view the OAuth callback URL, required scopes, and target entities.
-Create a Slack App in https://api.slack.com/apps, set TF_VAR_slack_auth, and update slack_config.instance_uri and slack_config.team_id in terraform.tfvars.
+Run `make slack-checklist` to view the Federated + MCP Actions setup, OAuth redirect URL, and target entities.
+Set slack_config.instance_uri (and optional team_id) in terraform.tfvars; optionally create a BYO Slack App in https://api.slack.com/apps and set TF_VAR_slack_auth.
 ```
 
 ### `permissions`

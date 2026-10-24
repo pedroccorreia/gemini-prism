@@ -577,13 +577,14 @@ def print_slack_checklist():
         envs = tfvars.get("environments", ["non-prod", "prod"])
         uri = slack_cfg.get("instance_uri", "")
         team_id = slack_cfg.get("team_id", "")
-        auth_type = tfvars.get("slack_auth_type", "BOT_TOKEN")
+        auth_type = tfvars.get("slack_auth_type", "OAUTH")
         data = {
             env: {
                 "project_id": f"{tfvars.get('project_id_prefix', '')}{tfvars.get('customer_id', 'customer')}-{env}",
                 "instance_uri": uri,
                 "team_id": team_id,
                 "auth_type": auth_type,
+                "data_source_version": slack_cfg.get("data_source_version") or 3,
                 "oauth_callback_url": "https://vertexaisearch.cloud.google.com/oauth-redirect",
                 "slack_api_console_url": "https://api.slack.com/apps",
                 "slack_admin_console_url": "https://app.slack.com/manage",
@@ -596,7 +597,7 @@ def print_slack_checklist():
                     "users:read",
                     "users:read.email"
                 ],
-                "entities": slack_cfg.get("entities", ["channel", "message", "thread", "canvas", "file"])
+                "entities": slack_cfg.get("entities", ["conversation", "message", "file"])
             }
             for env in envs
         }

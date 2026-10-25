@@ -103,13 +103,24 @@ locals {
   }[var.jira_auth_type]
 
   effective_jira_instance_id = try(coalesce(
-    trimspace(try(var.jira_auth.instance_id, "")),
+    trimspace(nonsensitive(try(var.jira_auth.instance_id, ""))),
     trimspace(try(var.jira_config.instance_id, ""))
   ), "")
 
-  # Default data source version based on auth type: 3 for OAuth, 1 for Basic Auth (API Token)
-  default_jira_version   = local.effective_jira_auth_type == "BASIC_AUTH" ? 1 : 3
-  effective_jira_version = coalesce(var.jira_config.data_source_version, local.default_jira_version)
+  # Default data source and version based on auth type:
+  # Discovery Engine 'jira' (Cloud) only accepts OAuth params (instance_uri, instance_id, client_id, client_secret),
+  # whereas API_TOKEN / BASIC_AUTH uses 'jira_server' with (api_token_type, username, api_token) and destination_configs.
+  effective_jira_data_source = local.effective_jira_auth_type == "BASIC_AUTH" ? "jira_server" : coalesce(var.jira_config.data_source, "jira")
+  default_jira_version       = local.effective_jira_auth_type == "BASIC_AUTH" ? 1 : 3
+  effective_jira_version     = coalesce(var.jira_config.data_source_version, local.default_jira_version)
+
+  jira_server_entity_map = {
+    "project"    = "projects"
+    "issue"      = "issues"
+    "attachment" = "attachments"
+    "comment"    = "comments"
+    "worklog"    = "worklogs"
+  }
 
   jira_entity_params = merge(
     length(coalesce(var.jira_config.project_keys_include, [])) > 0 ? {
@@ -130,34 +141,35 @@ locals {
     "${env_key}-jira" => {
       env_key             = env_key
       connector           = "jira"
-      data_source         = coalesce(var.jira_config.data_source, "jira")
+      data_source         = local.effective_jira_data_source
       data_source_version = local.effective_jira_version
       display_name        = "Atlassian Jira"
-      collection_id       = "jira-collection"
+      collection_id       = try(coalesce(trimspace(var.jira_config.collection_id)), "") != "" ? trimspace(var.jira_config.collection_id) : (contains(coalesce(var.jira_config.connector_modes, ["FEDERATED"]), "FEDERATED") ? "jira-federated-collection" : "jira-collection")
       project_id          = google_project.projects[env_key].project_id
       entities = [
         for e in coalesce(var.jira_config.entities, ["project", "issue", "attachment", "comment", "worklog"]) : {
-          entity_name = e
-          params      = (e == "project" && length(local.jira_entity_params) > 0) ? jsonencode(local.jira_entity_params) : null
+          entity_name = local.effective_jira_data_source == "jira_server" ? lookup(local.jira_server_entity_map, e, e) : e
+          params      = (contains(["project", "projects"], e) && length(local.jira_entity_params) > 0) ? jsonencode(local.jira_entity_params) : null
         }
       ]
-      connector_modes              = coalesce(var.jira_config.enable_actions, false) ? distinct(concat(coalesce(var.jira_config.connector_modes, ["DATA_INGESTION"]), ["ACTIONS"])) : coalesce(var.jira_config.connector_modes, ["DATA_INGESTION"])
-      sync_mode                    = var.jira_config.sync_mode
+      connector_modes              = coalesce(var.jira_config.enable_actions, false) ? distinct(concat(coalesce(var.jira_config.connector_modes, ["FEDERATED"]), ["ACTIONS"])) : coalesce(var.jira_config.connector_modes, ["FEDERATED"])
+      sync_mode                    = contains(coalesce(var.jira_config.connector_modes, ["FEDERATED"]), "FEDERATED") ? null : var.jira_config.sync_mode
       refresh_interval             = coalesce(var.jira_config.refresh_interval, "86400s")
-      incremental_refresh_interval = var.jira_config.incremental_refresh_interval
+      incremental_refresh_interval = (local.effective_jira_data_source == "jira_server" || contains(coalesce(var.jira_config.connector_modes, ["FEDERATED"]), "FEDERATED")) ? null : var.jira_config.incremental_refresh_interval
       static_ip_enabled            = var.jira_config.static_ip_enabled
       auto_run_disabled            = var.jira_config.auto_run_disabled
-      incremental_sync_disabled    = var.jira_config.incremental_sync_disabled
+      incremental_sync_disabled    = (local.effective_jira_data_source == "jira_server" || contains(coalesce(var.jira_config.connector_modes, ["FEDERATED"]), "FEDERATED")) ? null : var.jira_config.incremental_sync_disabled
       instance_uri                 = try(coalesce(var.jira_config.instance_uri), "")
-      params = merge(
+      params = local.effective_jira_data_source == "jira_server" ? merge(
+        { "api_token_type" = "BASIC_AUTH" },
+        trimspace(try(coalesce(var.jira_auth.user_account), "")) != "" ? { "username" = var.jira_auth.user_account } : {},
+        trimspace(try(coalesce(var.jira_auth.api_token), "")) != "" ? { "api_token" = var.jira_auth.api_token } : {},
+        coalesce(var.jira_config.extra_params, {})
+        ) : merge(
         try(coalesce(var.jira_config.instance_uri), "") != "" ? { "instance_uri" = var.jira_config.instance_uri } : {},
         local.effective_jira_instance_id != "" ? { "instance_id" = local.effective_jira_instance_id } : {},
-        { "auth_type" = local.effective_jira_auth_type },
         trimspace(try(coalesce(var.jira_auth.client_id), "")) != "" ? { "client_id" = var.jira_auth.client_id } : {},
         trimspace(try(coalesce(var.jira_auth.client_secret), "")) != "" ? { "client_secret" = var.jira_auth.client_secret } : {},
-        trimspace(try(coalesce(var.jira_auth.refresh_token), "")) != "" ? { "refresh_token" = var.jira_auth.refresh_token } : {},
-        trimspace(try(coalesce(var.jira_auth.user_account), "")) != "" ? { "user_account" = var.jira_auth.user_account } : {},
-        trimspace(try(coalesce(var.jira_auth.api_token), "")) != "" ? { "api_token" = var.jira_auth.api_token } : {},
         coalesce(var.jira_config.extra_params, {})
       )
       action_params = merge(
@@ -172,6 +184,149 @@ locals {
     }
   } : {}
 
+  # Map user-friendly or legacy auth type to canonical Discovery Engine auth_type for Confluence
+  effective_confluence_auth_type = {
+    "OAUTH"            = "OAUTH"
+    "OAUTH2"           = "OAUTH"
+    "BASIC_AUTH"       = "BASIC_AUTH"
+    "API_TOKEN"        = "BASIC_AUTH"
+    "OAUTH_TWO_LEGGED" = "OAUTH_TWO_LEGGED"
+  }[var.confluence_auth_type]
+
+  # Confluence instance URI and instance ID with automatic fallback to Jira values when omitted
+  effective_confluence_instance_uri = try(coalesce(
+    trimspace(try(var.confluence_config.instance_uri, "")),
+    trimspace(try(var.jira_config.instance_uri, ""))
+  ), "")
+
+  effective_confluence_instance_id = try(coalesce(
+    trimspace(nonsensitive(try(var.confluence_auth.instance_id, ""))),
+    trimspace(try(var.confluence_config.instance_id, "")),
+    local.effective_jira_instance_id
+  ), "")
+
+  effective_confluence_client_id = try(coalesce(
+    trimspace(nonsensitive(try(var.confluence_auth.client_id, ""))),
+    trimspace(nonsensitive(try(var.jira_auth.client_id, "")))
+  ), "")
+
+  effective_confluence_client_secret = try(coalesce(
+    trimspace(nonsensitive(try(var.confluence_auth.client_secret, ""))),
+    trimspace(nonsensitive(try(var.jira_auth.client_secret, "")))
+  ), "")
+
+  effective_confluence_user_account = try(coalesce(
+    trimspace(nonsensitive(try(var.confluence_auth.user_account, ""))),
+    trimspace(nonsensitive(try(var.jira_auth.user_account, "")))
+  ), "")
+
+  effective_confluence_api_token = try(coalesce(
+    trimspace(nonsensitive(try(var.confluence_auth.api_token, ""))),
+    trimspace(nonsensitive(try(var.jira_auth.api_token, "")))
+  ), "")
+
+  # Default data source and version based on auth type:
+  # Discovery Engine 'confluence' (Cloud) v4 supports FEDERATED and ACTIONS via OAuth (instance_uri, instance_id, client_id, client_secret),
+  # whereas BASIC_AUTH / API_TOKEN uses 'confluence_server' v1 with (user_account, password) and destination_configs.
+  effective_confluence_data_source = local.effective_confluence_auth_type == "BASIC_AUTH" ? "confluence_server" : coalesce(var.confluence_config.data_source, "confluence")
+  default_confluence_version       = local.effective_confluence_auth_type == "BASIC_AUTH" ? 1 : 4
+  effective_confluence_version     = coalesce(var.confluence_config.data_source_version, local.default_confluence_version)
+
+  confluence_cloud_entity_map = {
+    "blogpost"    = "blog"
+    "spaces"      = "space"
+    "pages"       = "page"
+    "attachments" = "attachment"
+    "comments"    = "comment"
+    "whiteboards" = "whiteboard"
+  }
+
+  confluence_server_entity_map = {
+    "space"      = "spaces"
+    "page"       = "pages"
+    "blog"       = "blogposts"
+    "blogpost"   = "blogposts"
+    "attachment" = "attachments"
+    "comment"    = "comments"
+  }
+
+  confluence_cloud_space_params = merge(
+    length(coalesce(var.confluence_config.space_keys_include, [])) > 0 ? {
+      "inclusion_filters" = {
+        "spaceKey" = var.confluence_config.space_keys_include
+      }
+    } : {},
+    length(coalesce(var.confluence_config.space_keys_exclude, [])) > 0 ? {
+      "exclusion_filters" = {
+        "spaceKey" = var.confluence_config.space_keys_exclude
+      }
+    } : {}
+  )
+
+  confluence_server_space_params = merge(
+    length(coalesce(var.confluence_config.space_keys_include, [])) > 0 ? {
+      "inclusion_filters" = {
+        "Key" = var.confluence_config.space_keys_include
+      }
+    } : {},
+    length(coalesce(var.confluence_config.space_keys_exclude, [])) > 0 ? {
+      "exclusion_filters" = {
+        "Key" = var.confluence_config.space_keys_exclude
+      }
+    } : {}
+  )
+
+  confluence_space_entity_params = local.effective_confluence_data_source == "confluence_server" ? local.confluence_server_space_params : local.confluence_cloud_space_params
+
+  # Atlassian Confluence connector per environment (when enabled)
+  confluence_environment_connectors = var.enable_confluence_connector ? {
+    for env_key, env_val in local.environments :
+    "${env_key}-confluence" => {
+      env_key             = env_key
+      connector           = "confluence"
+      data_source         = local.effective_confluence_data_source
+      data_source_version = local.effective_confluence_version
+      display_name        = "Atlassian Confluence"
+      collection_id       = try(coalesce(trimspace(var.confluence_config.collection_id)), "") != "" ? trimspace(var.confluence_config.collection_id) : (contains(coalesce(var.confluence_config.connector_modes, ["FEDERATED"]), "FEDERATED") ? "confluence-federated-collection" : "confluence-collection")
+      project_id          = google_project.projects[env_key].project_id
+      entities = [
+        for e in coalesce(var.confluence_config.entities, ["space", "page", "blog", "attachment", "comment"]) : {
+          entity_name = local.effective_confluence_data_source == "confluence_server" ? lookup(local.confluence_server_entity_map, e, e) : lookup(local.confluence_cloud_entity_map, e, e)
+          params      = (contains(["space", "spaces"], e) && length(local.confluence_space_entity_params) > 0) ? jsonencode(local.confluence_space_entity_params) : null
+        }
+      ]
+      connector_modes              = coalesce(var.confluence_config.enable_actions, false) ? distinct(concat(coalesce(var.confluence_config.connector_modes, ["FEDERATED"]), ["ACTIONS"])) : coalesce(var.confluence_config.connector_modes, ["FEDERATED"])
+      sync_mode                    = contains(coalesce(var.confluence_config.connector_modes, ["FEDERATED"]), "FEDERATED") ? null : var.confluence_config.sync_mode
+      refresh_interval             = coalesce(var.confluence_config.refresh_interval, "86400s")
+      incremental_refresh_interval = (local.effective_confluence_data_source == "confluence_server" || contains(coalesce(var.confluence_config.connector_modes, ["FEDERATED"]), "FEDERATED")) ? null : var.confluence_config.incremental_refresh_interval
+      static_ip_enabled            = var.confluence_config.static_ip_enabled
+      auto_run_disabled            = var.confluence_config.auto_run_disabled
+      incremental_sync_disabled    = (local.effective_confluence_data_source == "confluence_server" || contains(coalesce(var.confluence_config.connector_modes, ["FEDERATED"]), "FEDERATED")) ? null : var.confluence_config.incremental_sync_disabled
+      instance_uri                 = local.effective_confluence_instance_uri
+      params = local.effective_confluence_data_source == "confluence_server" ? merge(
+        { "api_token_type" = "BASIC_AUTH" },
+        local.effective_confluence_user_account != "" ? { "username" = local.effective_confluence_user_account } : {},
+        local.effective_confluence_api_token != "" ? { "password" = local.effective_confluence_api_token } : {},
+        coalesce(var.confluence_config.extra_params, {})
+        ) : merge(
+        local.effective_confluence_instance_uri != "" ? { "instance_uri" = local.effective_confluence_instance_uri } : {},
+        local.effective_confluence_instance_id != "" ? { "instance_id" = local.effective_confluence_instance_id } : {},
+        local.effective_confluence_client_id != "" ? { "client_id" = local.effective_confluence_client_id } : {},
+        local.effective_confluence_client_secret != "" ? { "client_secret" = local.effective_confluence_client_secret } : {},
+        coalesce(var.confluence_config.extra_params, {})
+      )
+      action_params = merge(
+        local.effective_confluence_instance_uri != "" ? { "instance_uri" = local.effective_confluence_instance_uri } : {},
+        local.effective_confluence_instance_id != "" ? { "instance_id" = local.effective_confluence_instance_id } : {},
+        { "auth_type" = "OAUTH" },
+        local.effective_confluence_client_id != "" ? { "client_id" = local.effective_confluence_client_id } : {},
+        local.effective_confluence_client_secret != "" ? { "client_secret" = local.effective_confluence_client_secret } : {}
+      )
+      enable_actions  = coalesce(var.confluence_config.enable_actions, false)
+      enabled_actions = coalesce(var.confluence_config.enabled_actions, [])
+    }
+  } : {}
+
   # Map user-friendly Slack auth type to canonical Discovery Engine auth_type
   effective_slack_auth_type = {
     "OAUTH"      = "OAUTH"
@@ -182,7 +337,7 @@ locals {
   }[var.slack_auth_type]
 
   effective_slack_team_id = try(coalesce(
-    trimspace(try(var.slack_auth.team_id, "")),
+    trimspace(nonsensitive(try(var.slack_auth.team_id, ""))),
     trimspace(try(var.slack_config.team_id, ""))
   ), "")
 
@@ -227,7 +382,7 @@ locals {
       data_source         = coalesce(var.slack_config.data_source, "slack")
       data_source_version = local.is_slack_federated ? null : local.effective_slack_version
       display_name        = "Slack Enterprise"
-      collection_id       = "slack-collection"
+      collection_id       = try(coalesce(trimspace(var.slack_config.collection_id)), "") != "" ? trimspace(var.slack_config.collection_id) : "slack-collection"
       project_id          = google_project.projects[env_key].project_id
       entities = [
         for e in coalesce(var.slack_config.entities, ["conversation", "message", "file"]) : {
@@ -266,10 +421,61 @@ locals {
     }
   } : {}
 
+  # Entity parameters for Google People & Org Directory
+  people_directory_entity_params = merge(
+    coalesce(var.people_directory_config.include_suspended_users, false) ? { "include_suspended_users" = "true" } : {},
+    length(coalesce(var.people_directory_config.org_units_include, [])) > 0 ? {
+      "org_units" = var.people_directory_config.org_units_include
+    } : {},
+    length(coalesce(var.people_directory_config.custom_schemas_include, [])) > 0 ? {
+      "custom_schemas" = var.people_directory_config.custom_schemas_include
+    } : {}
+  )
+
+  # Map user-friendly or legacy data_source names to canonical Discovery Engine data_source
+  effective_people_directory_data_source = "native_cloud_identity"
+
+  # Google Cloud Identity / Workspace People & Org Directory connector per environment (when enabled)
+  people_directory_environment_connectors = var.enable_people_directory_connector ? {
+    for env_key, env_val in local.environments :
+    "${env_key}-people-directory" => {
+      env_key             = env_key
+      connector           = "people_directory"
+      data_source         = local.effective_people_directory_data_source
+      data_source_version = null
+      display_name        = coalesce(var.people_directory_config.display_name, "Google People Directory")
+      collection_id       = coalesce(var.people_directory_config.collection_id, "people-directory-collection")
+      project_id          = google_project.projects[env_key].project_id
+      entities = [
+        {
+          entity_name = "users"
+          params      = length(local.people_directory_entity_params) > 0 ? jsonencode(local.people_directory_entity_params) : null
+        }
+      ]
+      connector_modes              = ["DATA_INGESTION"]
+      sync_mode                    = "PERIODIC"
+      refresh_interval             = coalesce(var.people_directory_config.refresh_interval, "86400s")
+      incremental_refresh_interval = null
+      static_ip_enabled            = false
+      auto_run_disabled            = coalesce(var.people_directory_config.auto_run_disabled, false)
+      incremental_sync_disabled    = false
+      instance_uri                 = ""
+      params = {
+        "impersonated_user_email_address" = var.workspace_admin_email
+        "super_admin_service_account"     = "service-${google_project.projects[env_key].number}@gcp-sa-discoveryengine.iam.gserviceaccount.com"
+      }
+      action_params   = {}
+      enable_actions  = false
+      enabled_actions = []
+    }
+  } : {}
+
   environment_connectors = merge(
     local.workspace_environment_connectors,
     local.jira_environment_connectors,
-    local.slack_environment_connectors
+    local.confluence_environment_connectors,
+    local.slack_environment_connectors,
+    local.people_directory_environment_connectors
   )
 
   # Domain-Wide Delegation OAuth scopes required for Workspace connectors & user directory
@@ -277,6 +483,9 @@ locals {
     "https://www.googleapis.com/auth/admin.directory.user.readonly",
     "https://www.googleapis.com/auth/admin.directory.group.readonly",
     "https://www.googleapis.com/auth/admin.directory.group.member.readonly",
+    "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
+    "https://www.googleapis.com/auth/admin.directory.customschema.readonly",
+    "https://www.googleapis.com/auth/directory.readonly",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/drive.readonly",
@@ -284,6 +493,7 @@ locals {
     "https://www.googleapis.com/auth/chat.messages.readonly",
     "https://www.googleapis.com/auth/chat.memberships.readonly"
   ]
+
 
   # Normalized optional parameters
   effective_sa_email  = trimspace(try(coalesce(var.sa_email), "")) != "" ? trimspace(var.sa_email) : null
@@ -319,6 +529,17 @@ resource "google_project_service_identity" "discoveryengine_sa" {
 
   depends_on = [google_project_service.services]
 }
+
+# Service Account Token Creator role for Discovery Engine Service Agent (required by native_cloud_identity)
+resource "google_project_iam_member" "discoveryengine_sa_token_creator" {
+  for_each = var.enable_people_directory_connector ? local.environments : {}
+  project  = google_project.projects[each.key].project_id
+  role     = "roles/iam.serviceAccountTokenCreator"
+  member   = "serviceAccount:service-${google_project.projects[each.key].number}@gcp-sa-discoveryengine.iam.gserviceaccount.com"
+
+  depends_on = [google_project_service_identity.discoveryengine_sa]
+}
+
 
 # Optional Provisioner Service Account IAM binding
 resource "google_project_iam_member" "sa_discoveryengine_admin" {
@@ -410,7 +631,12 @@ resource "google_discovery_engine_data_connector" "connectors" {
       each.value.connector == "slack" && contains(each.value.connector_modes, "FEDERATED")
       ? [{ key = "host_address", host = "https://mcp.slack.com" }]
       : (
-        each.value.connector != "slack" && each.value.instance_uri != "" && (each.value.enable_actions || contains(each.value.connector_modes, "FEDERATED"))
+        each.value.connector != "slack" && each.value.instance_uri != "" && (
+          each.value.enable_actions ||
+          contains(each.value.connector_modes, "FEDERATED") ||
+          each.value.data_source == "jira_server" ||
+          each.value.data_source == "confluence_server"
+        )
         ? [{ key = "url", host = each.value.instance_uri }]
         : []
       )
@@ -448,7 +674,7 @@ resource "google_discovery_engine_data_connector" "connectors" {
 
 # 6. Provision Unified Gemini Enterprise Search App per Customer Environment Project
 resource "google_discovery_engine_search_engine" "engines" {
-  for_each          = (var.enable_connectors || var.enable_jira_connector || var.enable_slack_connector) ? local.environments : {}
+  for_each          = (var.enable_connectors || var.enable_jira_connector || var.enable_confluence_connector || var.enable_slack_connector || var.enable_people_directory_connector) ? local.environments : {}
   project           = google_project.projects[each.key].project_id
   location          = var.location
   collection_id     = "default_collection"
@@ -461,6 +687,7 @@ resource "google_discovery_engine_search_engine" "engines" {
     for conn_key, conn in local.environment_connectors : [
       for entity in google_discovery_engine_data_connector.connectors[conn_key].entities :
       basename(entity.data_store)
+      if try(trimspace(entity.data_store), "") != ""
     ]
     if conn.env_key == each.key
   ])
@@ -477,7 +704,7 @@ resource "google_discovery_engine_search_engine" "engines" {
 
 # 7. Grant End-User Search Access Scoped to the Engine
 resource "google_discovery_engine_search_engine_iam_member" "users" {
-  for_each      = (var.enable_connectors || var.enable_jira_connector || var.enable_slack_connector) ? local.environments : {}
+  for_each      = (var.enable_connectors || var.enable_jira_connector || var.enable_confluence_connector || var.enable_slack_connector || var.enable_people_directory_connector) ? local.environments : {}
   project       = google_project.projects[each.key].project_id
   location      = var.location
   collection_id = google_discovery_engine_search_engine.engines[each.key].collection_id
@@ -488,7 +715,7 @@ resource "google_discovery_engine_search_engine_iam_member" "users" {
 
 # 8. Provision Governed Gemini Enterprise Assistant
 resource "google_discovery_engine_assistant" "default" {
-  for_each           = (var.enable_connectors || var.enable_jira_connector || var.enable_slack_connector) ? local.environments : {}
+  for_each           = (var.enable_connectors || var.enable_jira_connector || var.enable_confluence_connector || var.enable_slack_connector || var.enable_people_directory_connector) ? local.environments : {}
   project            = google_project.projects[each.key].project_id
   location           = var.location
   collection_id      = google_discovery_engine_search_engine.engines[each.key].collection_id

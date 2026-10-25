@@ -72,7 +72,7 @@ variable "slack_auth" {
 - **Identity Mapping:** Cross-references `users:read.email` against Cloud Identity User Store so search results respect channel membership visibility.
 
 ### Acceptance Criteria
-- [ ] Variables defined in `variables.tf` and exported in `outputs.tf`.
-- [ ] Ingestion schema properly formats conversational threads and parent-child message relationships.
-- [ ] Privacy controls: Whitelist validation and automatic exclusion of direct messages (DMs/MPDMs) unless explicitly opted in.
-- [ ] Terraform plan successfully verifies connector metadata and Secret Manager bindings.
+- [x] Variables defined in `variables.tf` and exported in `outputs.tf` (`slack_checklist`).
+- [x] Federated `v3` (`PUBLIC_GA`) schema + MCP actions (`https://mcp.slack.com`) configured for `conversation`, `message`, and `file` entities.
+- [x] Privacy controls: Channel inclusion/exclusion filters and default exclusion of private channels and DMs unless explicitly opted in.
+- [x] Automated validation in `scripts/configure.py`, `scripts/status.py`, `scripts/verify.py`, and `scripts/test_red.py`.

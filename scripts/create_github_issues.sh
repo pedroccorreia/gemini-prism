@@ -19,10 +19,27 @@ ISSUES["01"]="feat(connector): Support Atlassian Confluence Data Connector|enhan
 ISSUES["02"]="feat(connector): Support Slack Enterprise Data Connector|enhancement,connector,priority:p2,collaboration|${ISSUES_DIR}/02_slack_connector.md"
 ISSUES["03"]="feat(connector): Support HubSpot CRM Data Connector|enhancement,connector,priority:p3,crm|${ISSUES_DIR}/03_hubspot_connector.md"
 ISSUES["04"]="feat(connector): Support Google Cloud Identity / Workspace People Directory Connector|enhancement,connector,priority:p4,google-workspace,identity|${ISSUES_DIR}/04_people_directory_connector.md"
+ISSUES["05"]="feat(onboarding): Interactive Connector Onboarding Wizard & Input Variable Configuration Engine|enhancement,onboarding,cli,wizard,priority:p0|${ISSUES_DIR}/05_interactive_connector_onboarding.md"
+
+TARGET_ARG="${1:-}"
+if [ -n "${TARGET_ARG}" ]; then
+  if [[ "${TARGET_ARG}" =~ ^[0-9]+$ ]]; then
+    KEY=$(printf "%02d" "$((10#${TARGET_ARG}))")
+  else
+    KEY="${TARGET_ARG}"
+  fi
+  if [ -z "${ISSUES[${KEY}]:-}" ]; then
+    echo "Error: Unknown issue key '${TARGET_ARG}'. Available keys: 01, 02, 03, 04, 05" >&2
+    exit 1
+  fi
+  TARGET_KEYS=("${KEY}")
+else
+  TARGET_KEYS=("01" "02" "03" "04" "05")
+fi
 
 create_via_gh() {
   echo ">>> Authenticated GitHub CLI detected. Creating issues..."
-  for key in "01" "02" "03" "04"; do
+  for key in "${TARGET_KEYS[@]}"; do
     IFS="|" read -r title labels file <<< "${ISSUES[$key]}"
     echo "Creating Issue [Priority P${key#0}]: ${title}..."
     gh issue create \
@@ -31,13 +48,13 @@ create_via_gh() {
       --body-file "${file}" \
       --label "${labels}"
   done
-  echo ">>> Successfully created all 4 feature request issues on GitHub!"
+  echo ">>> Successfully created issues on GitHub!"
 }
 
 create_via_curl() {
   local token="$1"
   echo ">>> GITHUB_TOKEN detected. Creating issues via GitHub REST API..."
-  for key in "01" "02" "03" "04"; do
+  for key in "${TARGET_KEYS[@]}"; do
     IFS="|" read -r title labels file <<< "${ISSUES[$key]}"
     echo "Creating Issue [Priority P${key#0}]: ${title}..."
     body_content=$(cat "${file}")
@@ -57,7 +74,7 @@ create_via_curl() {
       "https://api.github.com/repos/${REPO}/issues" \
       -d "${payload}" > /dev/null
   done
-  echo ">>> Successfully created all 4 feature request issues via REST API!"
+  echo ">>> Successfully created issues via REST API!"
 }
 
 # 1. Check if gh CLI is authenticated
@@ -81,16 +98,24 @@ fi
 echo ""
 echo "Notice: Neither 'gh' authentication nor GITHUB_TOKEN was detected in this environment."
 echo ""
-echo "To publish these 4 issues automatically, either:"
-echo "  1) Run: gh auth login"
-echo "     Then rerun: bash scripts/create_github_issues.sh"
-echo "  OR"
-echo "  2) Run: export GITHUB_TOKEN=<your_github_token>"
-echo "     Then rerun: bash scripts/create_github_issues.sh"
+echo "To publish automatically, either:"
+if [ -n "${TARGET_ARG}" ]; then
+  echo "  1) Run: gh auth login"
+  echo "     Then rerun: bash scripts/create_github_issues.sh ${TARGET_ARG}"
+  echo "  OR"
+  echo "  2) Run: export GITHUB_TOKEN=<your_github_token>"
+  echo "     Then rerun: bash scripts/create_github_issues.sh ${TARGET_ARG}"
+else
+  echo "  1) Run: gh auth login"
+  echo "     Then rerun: bash scripts/create_github_issues.sh"
+  echo "  OR"
+  echo "  2) Run: export GITHUB_TOKEN=<your_github_token>"
+  echo "     Then rerun: bash scripts/create_github_issues.sh"
+fi
 echo ""
-echo "Or create them directly using GitHub CLI:"
+echo "Or create directly using GitHub CLI:"
 echo "-----------------------------------------------------------------"
-for key in "01" "02" "03" "04"; do
+for key in "${TARGET_KEYS[@]}"; do
   IFS="|" read -r title labels file <<< "${ISSUES[$key]}"
   echo "gh issue create --repo ${REPO} --title \"${title}\" --body-file \"${file}\" --label \"${labels}\""
 done

@@ -19,6 +19,9 @@ terraform.rc
 *key*.json
 *credentials*.json
 token*.json
+.env
+.env.*
+.agents/
 
 # Generated Runtime Configurations
 config/license_allocations.json

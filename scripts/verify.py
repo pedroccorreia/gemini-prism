@@ -108,8 +108,11 @@ def check_data_connectors(project_id, location, token):
         blocking_reasons = c_res.get("blockingReasons", [])
         entities = c_res.get("entities", [])
         errors = c_res.get("errors", [])
+        connector_modes = c_res.get("connectorModes", [])
 
         details_parts = [f"Collection: {col_id}"]
+        if connector_modes:
+            details_parts.append(f"Modes: {','.join(connector_modes)}")
         if entities:
             details_parts.append(f"Entities: {len(entities)}")
         if realtime_state:
@@ -130,7 +133,7 @@ def check_data_connectors(project_id, location, token):
         results.append((f"Connector ({data_source})", status, ", ".join(details_parts)))
 
     if not found_connectors:
-        results.append(("Data Connectors", "WARN", "No active data connectors found (enable_connectors, enable_jira_connector, or enable_slack_connector may be false)"))
+        results.append(("Data Connectors", "WARN", "No active data connectors found (enable_connectors, enable_jira_connector, enable_confluence_connector, enable_slack_connector, or enable_people_directory_connector may be false)"))
 
     return results
 
@@ -339,9 +342,14 @@ def main():
                 "console_url": f"https://console.cloud.google.com/gen-app-builder/engines?project={p_id}"
             })
 
-        # If everything succeeded or no waiting requested, break
+        has_creating = any(
+            c["status"] in ("CREATING", "INITIALIZING", "STATE_CREATING", "UPDATING")
+            for r in json_results
+            for c in r["checks"]
+        )
+        # If everything succeeded (and nothing is still creating when waiting) or no waiting requested, break
         elapsed = time.time() - start_time
-        if overall_success or elapsed >= max_wait_seconds:
+        if (overall_success and not has_creating) or elapsed >= max_wait_seconds:
             break
 
         if not args.json:
@@ -349,7 +357,7 @@ def main():
                 f"{r['project_id']}:{c['component']}={c['status']}"
                 for r in json_results
                 for c in r["checks"]
-                if c["status"] in ("ERROR", "FAIL")
+                if c["status"] in ("ERROR", "FAIL", "CREATING", "INITIALIZING", "STATE_CREATING", "UPDATING")
             ]
             pending_str = f" ({', '.join(pending)})" if pending else ""
             print(f"  [WAIT] Components not ready{pending_str}. Waiting {poll_interval}s ({int(elapsed)}s / {max_wait_seconds}s elapsed)...")

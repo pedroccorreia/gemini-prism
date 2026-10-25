@@ -16,6 +16,7 @@ sa_email        = null # Optional: Custom provisioner service account email. If 
 
 # Discovery Engine & Workspace Connectors
 location             = "global"
+planned_connectors   = ["workspace"]
 enable_connectors    = false
 workspace_connectors = ["google_mail", "google_calendar", "google_drive", "google_chat"]
 
@@ -38,23 +39,44 @@ enable_jira_connector = false
 jira_auth_type        = "OAUTH"
 
 jira_config = {
-  instance_uri                 = "https://example.atlassian.net"
-  instance_id                  = "" # Jira Cloud ID UUID (fetch via: curl -s https://<site>.atlassian.net/_edge/tenant_info | jq -r .cloudId)
-  data_source                  = "jira"
-  data_source_version          = 3
-  sync_mode                    = "PERIODIC"
-  refresh_interval             = "86400s"
-  incremental_refresh_interval = "10800s"
-  entities                     = ["project", "issue", "attachment", "comment", "worklog"]
-  static_ip_enabled            = false
-  enable_actions               = false
-  enabled_actions              = ["create_issue", "update_issue", "change_issue_status", "create_comment", "update_comment", "upload_attachment"]
+  instance_uri        = "https://example.atlassian.net"
+  instance_id         = "" # Jira Cloud ID UUID (fetch via: curl -s https://<site>.atlassian.net/_edge/tenant_info | jq -r .cloudId)
+  data_source         = "jira"
+  data_source_version = 3
+  connector_modes     = ["FEDERATED"]
+  refresh_interval    = "86400s"
+  entities            = ["project", "issue", "attachment", "comment", "worklog"]
+  static_ip_enabled   = false
+  enable_actions      = false
+  enabled_actions     = ["create_issue", "update_issue", "change_issue_status", "create_comment", "update_comment", "upload_attachment"]
 }
 
 # Note: Sensitive credentials should be passed via TF_VAR_jira_auth environment variable, e.g.:
-# export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","refresh_token":"...","instance_id":"..."}'  # for OAUTH (v3)
+# export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","instance_id":"..."}'  # for Jira Cloud OAUTH (v3, FEDERATED)
 # or
-# export TF_VAR_jira_auth='{"user_account":"user@example.com","api_token":"..."}'  # for BASIC_AUTH / API_TOKEN (v1)
+# export TF_VAR_jira_auth='{"user_account":"user@example.com","api_token":"..."}'  # for Jira Server/Data Center BASIC_AUTH / API_TOKEN (v1)
+
+# Atlassian Confluence Connector (optional)
+enable_confluence_connector = false
+confluence_auth_type        = "OAUTH"
+
+confluence_config = {
+  instance_uri        = "" # e.g. "https://example.atlassian.net" (defaults to jira_config.instance_uri if omitted)
+  instance_id         = "" # Confluence Cloud ID UUID (defaults to jira_config.instance_id / TF_VAR_jira_auth if omitted)
+  data_source         = "confluence"
+  data_source_version = 4
+  collection_id       = "confluence-federated-collection"
+  connector_modes     = ["FEDERATED"]
+  refresh_interval    = "86400s"
+  entities            = ["space", "page", "blog", "attachment", "comment"]
+  static_ip_enabled   = false
+  enable_actions      = false
+  enabled_actions     = ["create_page", "update_page", "create_blogpost", "create_space", "upload_attachment", "download_attachment"]
+}
+
+# Note: Sensitive credentials can be passed via TF_VAR_confluence_auth environment variable, e.g.:
+# export TF_VAR_confluence_auth='{"client_id":"...","client_secret":"...","instance_id":"..."}'  # for Confluence Cloud OAUTH (v4, FEDERATED)
+# If Confluence shares the same Atlassian tenant and 3LO app as Jira, omitting TF_VAR_confluence_auth will automatically fall back to TF_VAR_jira_auth.
 
 # Slack Enterprise Connector (optional)
 enable_slack_connector = false
@@ -63,6 +85,7 @@ slack_auth_type        = "OAUTH"
 slack_config = {
   instance_uri                 = "https://example.slack.com"
   team_id                      = "T00000000" # Slack Workspace ID (T...) or Enterprise Grid ID (E...)
+  collection_id                = "slack-collection"
   data_source                  = "slack"
   data_source_version          = 3
   connector_modes              = ["FEDERATED"]
@@ -81,7 +104,20 @@ slack_config = {
 
 # Note: Default slack_auth_type = "OAUTH" uses Google-Managed Slack OAuth (v3 Federated + Actions) and requires
 # NO TF_VAR_slack_auth credentials (users click Connect next to Slack in the Gemini Enterprise Web App Sources panel).
-# Optional BYO Slack OAuth App (v3) or legacy Bot Token (v1) credentials can be passed via TF_VAR_slack_auth:
+# Optional BYO Slack OAuth App (v3) credentials can be passed via TF_VAR_slack_auth:
 # export TF_VAR_slack_auth='{"client_id":"...","client_secret":"...","team_id":"T01234567"}'  # for BYO OAUTH App (v3)
-# export TF_VAR_slack_auth='{"bot_token":"xoxb-...","team_id":"T01234567"}'                   # for BOT_TOKEN / API_TOKEN (v1)
 
+# Google People & Org Directory Connector (optional)
+enable_people_directory_connector = false
+
+people_directory_config = {
+  data_source             = "google_people_directory"
+  collection_id           = "people-directory-collection"
+  display_name            = "Google People Directory"
+  include_suspended_users = false
+  org_units_include       = [] # e.g. ["/Employees", "/Contractors"]
+  custom_schemas_include  = [] # e.g. ["Skills", "Certifications"]
+  refresh_interval        = "86400s"
+  sync_mode               = "INCREMENTAL"
+  entities                = ["user_profile", "job_architecture", "reporting_hierarchy", "location_contact", "custom_attributes"]
+}

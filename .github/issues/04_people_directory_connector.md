@@ -54,7 +54,7 @@ variable "people_directory_config" {
 - **Entity Schema:** Graph-structured schema supporting hierarchical manager lookups and attribute-based search.
 
 ### Acceptance Criteria
-- [ ] Variables defined in `variables.tf` and exported in `outputs.tf`.
-- [ ] Validate that existing DWD client authorization covers all needed Directory API endpoints.
-- [ ] Add query examples in `PRACTITIONERS_GUIDE.md` demonstrating org-search and people-finder conversational queries.
-- [ ] Automated validation in `scripts/plan_guard.py` ensuring Directory service agent permissions are intact.
+- [x] Variables defined in `variables.tf` (`enable_people_directory_connector`, `people_directory_config`) and exported in `outputs.tf` (`people_directory_checklist`).
+- [x] Validate that existing DWD client authorization covers all needed Directory API endpoints (`admin.directory.user.readonly`, `admin.directory.orgunit.readonly`, `admin.directory.customschema.readonly`).
+- [x] Add query examples in `PRACTITIONERS_GUIDE.md` demonstrating org-search and people-finder conversational queries.
+- [x] Automated validation in `scripts/status.py` and `scripts/verify.py` ensuring Directory service agent permissions and connector state are intact.

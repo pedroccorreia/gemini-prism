@@ -78,6 +78,35 @@ confluence_config = {
 # export TF_VAR_confluence_auth='{"client_id":"...","client_secret":"...","instance_id":"..."}'  # for Confluence Cloud OAUTH (v4, FEDERATED)
 # If Confluence shares the same Atlassian tenant and 3LO app as Jira, omitting TF_VAR_confluence_auth will automatically fall back to TF_VAR_jira_auth.
 
+# Slack Enterprise Connector (optional)
+enable_slack_connector = false
+slack_auth_type        = "OAUTH"
+
+slack_config = {
+  instance_uri                 = "https://example.slack.com"
+  team_id                      = "T00000000" # Slack Workspace ID (T...) or Enterprise Grid ID (E...)
+  collection_id                = "slack-collection"
+  data_source                  = "slack"
+  data_source_version          = 3
+  connector_modes              = ["FEDERATED"]
+  sync_mode                    = "PERIODIC"
+  refresh_interval             = "43200s"
+  incremental_refresh_interval = "10800s"
+  entities                     = ["conversation", "message", "file"]
+  channels_include             = []
+  channels_exclude             = []
+  include_private_channels     = false
+  include_dms                  = false
+  static_ip_enabled            = false
+  enable_actions               = false
+  enabled_actions              = ["slack_send_message", "slack_schedule_message", "slack_create_canvas", "slack_send_message_draft"]
+}
+
+# Note: Default slack_auth_type = "OAUTH" uses Google-Managed Slack OAuth (v3 Federated + Actions) and requires
+# NO TF_VAR_slack_auth credentials (users click Connect next to Slack in the Gemini Enterprise Web App Sources panel).
+# Optional BYO Slack OAuth App (v3) credentials can be passed via TF_VAR_slack_auth:
+# export TF_VAR_slack_auth='{"client_id":"...","client_secret":"...","team_id":"T01234567"}'  # for BYO OAUTH App (v3)
+
 # Google People & Org Directory Connector (optional)
 enable_people_directory_connector = false
 

@@ -76,6 +76,19 @@ CONNECTOR_OPTIONS = [
         "enable_flag": "enable_confluence_connector",
     },
     {
+        "value": "slack",
+        "label": "Slack Enterprise",
+        "description": "Slack channels, messages, files, and MCP actions federated search connector",
+        "docs_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/slack",
+        "help_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/slack",
+        "doc_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/slack",
+        "admin_url": "https://api.slack.com/apps",
+        "lookup_command": "echo 'https://<workspace>.slack.com'",
+        "required_roles": ["Slack Workspace Owner / Org Admin"],
+        "default": False,
+        "enable_flag": "enable_slack_connector",
+    },
+    {
         "value": "people_directory",
         "label": "Google Workspace People Directory",
         "description": "User profile and directory search connector",
@@ -97,6 +110,8 @@ PLACEHOLDER_STRINGS = {
     "c01234567",
     "0x1xxx-xxxxxx-xxxxxx",
     "00000000-0000-0000-0000-000000000000",
+    "t00000000",
+    "e00000000",
 }
 
 VARIABLE_METADATA = {
@@ -177,6 +192,17 @@ VARIABLE_METADATA = {
         "required_roles": ["Atlassian Site Administrator"],
         "help_center_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud",
     },
+    "slack_instance_uri": {
+        "name": "slack_instance_uri",
+        "title": "Slack Workspace URL",
+        "description": "Slack workspace base URL (e.g. https://<workspace>.slack.com)",
+        "connector": "slack",
+        "where_to_get": "Slack Workspace or Enterprise Grid URL (https://<workspace>.slack.com).",
+        "admin_url": "https://app.slack.com/manage",
+        "lookup_command": "echo 'https://<your-workspace>.slack.com'",
+        "required_roles": ["Slack Workspace Owner / Org Admin"],
+        "help_center_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/slack",
+    },
 }
 
 
@@ -189,7 +215,7 @@ def is_placeholder(val):
         return True
     if s in PLACEHOLDER_STRINGS:
         return True
-    if any(p in s for p in ["0x1xxx", "example-customer", "example.com", "example.atlassian.net"]):
+    if any(p in s for p in ["0x1xxx", "example-customer", "example.com", "example.atlassian.net", "example.slack.com"]):
         return True
     return False
 
@@ -302,9 +328,10 @@ def determine_stage(workdir=".", state_path=None, tfvars_path=None):
     enable_connectors = tfvars.get("enable_connectors", False)
     enable_jira = tfvars.get("enable_jira_connector", False)
     enable_confluence = tfvars.get("enable_confluence_connector", False)
+    enable_slack = tfvars.get("enable_slack_connector", False)
     enable_directory = tfvars.get("enable_people_directory_connector", False)
 
-    if not enable_connectors and not enable_jira and not enable_confluence and not enable_directory:
+    if not enable_connectors and not enable_jira and not enable_confluence and not enable_slack and not enable_directory:
         return 2
 
     # Check Jira if enabled
@@ -312,6 +339,16 @@ def determine_stage(workdir=".", state_path=None, tfvars_path=None):
         jira_cfg = tfvars.get("jira_config", {})
         instance_uri = str(jira_cfg.get("instance_uri", "")).strip()
         if not instance_uri or "example.atlassian.net" in instance_uri:
+            return 2
+
+    # Check Slack if enabled
+    if enable_slack:
+        slack_cfg = tfvars.get("slack_config", {})
+        instance_uri = str(slack_cfg.get("instance_uri", "")).strip()
+        team_id = str(slack_cfg.get("team_id", "")).strip()
+        uri_invalid = (not instance_uri or "example.slack.com" in instance_uri.lower())
+        team_invalid = (not team_id or team_id.upper() in ("T00000000", "E00000000"))
+        if (uri_invalid and team_invalid) or "example.slack.com" in instance_uri.lower() or team_id.upper() in ("T00000000", "E00000000"):
             return 2
 
     search_engines = outputs.get("search_engine_names", {}).get("value", {})
@@ -431,10 +468,31 @@ def audit_inputs(tfvars=None, planned_connectors=None, workdir="."):
         else:
             configured_variables["jira_auth"] = "********"
 
+    # 3. Slack variables if planned (default Google-Managed OAuth requires only workspace URI)
+    if "slack" in planned_connectors:
+        slack_cfg = tfvars.get("slack_config", {})
+        slack_uri = slack_cfg.get("instance_uri") or tfvars.get("slack_instance_uri")
+        meta_slack_uri = VARIABLE_METADATA["slack_instance_uri"]
+        if is_placeholder(slack_uri):
+            missing_variables.append({
+                "name": "slack_instance_uri",
+                "description": meta_slack_uri["description"],
+                "connector": meta_slack_uri["connector"],
+                "where_to_get": meta_slack_uri["where_to_get"],
+                "admin_url": meta_slack_uri["admin_url"],
+                "lookup_command": meta_slack_uri["lookup_command"],
+                "required_roles": meta_slack_uri["required_roles"],
+                "required_iam_roles": meta_slack_uri["required_roles"],
+                "help_center_url": meta_slack_uri["help_center_url"],
+                "help_url": meta_slack_uri["help_center_url"],
+            })
+        else:
+            configured_variables["slack_instance_uri"] = slack_uri
+
     # Add other configured variables from tfvars
     for k, v in tfvars.items():
         if k not in configured_variables and not is_placeholder(v):
-            if k not in ["jira_config", "people_directory_config"]:
+            if k not in ["jira_config", "confluence_config", "slack_config", "people_directory_config"]:
                 configured_variables[k] = v
 
     status = "ok" if not missing_variables else "missing_variables"
@@ -472,6 +530,7 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
         updates["enable_connectors"] = False
         updates["enable_jira_connector"] = False
         updates["enable_confluence_connector"] = False
+        updates["enable_slack_connector"] = False
         updates["enable_people_directory_connector"] = False
 
     # 1. Update planned_connectors
@@ -486,7 +545,7 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
             content += f"\n{line}\n"
 
     # 2. Update enable_* flags
-    for flag in ["enable_connectors", "enable_jira_connector", "enable_confluence_connector", "enable_people_directory_connector"]:
+    for flag in ["enable_connectors", "enable_jira_connector", "enable_confluence_connector", "enable_slack_connector", "enable_people_directory_connector"]:
         if flag in updates:
             val_bool = "true" if updates[flag] else "false"
             spacing = "    " if flag == "enable_connectors" else " "
@@ -496,7 +555,7 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
             else:
                 content += f"\n{line}\n"
 
-    # 3. Update Jira config nested properties
+    # 3. Update Jira & Slack config nested properties
     jira_uri = updates.get("jira_instance_uri") or updates.get("jira_config.instance_uri")
     if jira_uri:
         def replace_jira_uri(m):
@@ -515,18 +574,42 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
             return block
         content = re.sub(r'jira_config\s*=\s*\{.*?\}', replace_jira_id, content, flags=re.DOTALL)
 
+    slack_uri = updates.get("slack_instance_uri") or updates.get("slack_config.instance_uri")
+    if slack_uri:
+        def replace_slack_uri(m):
+            block = m.group(0)
+            if re.search(r'instance_uri\s*=\s*"[^"]*"', block):
+                return re.sub(r'instance_uri\s*=\s*"[^"]*"', f'instance_uri                 = "{slack_uri}"', block)
+            return block
+        content = re.sub(r'slack_config\s*=\s*\{.*?\}', replace_slack_uri, content, flags=re.DOTALL)
+
+    slack_tid = updates.get("slack_team_id") or updates.get("slack_config.team_id")
+    if slack_tid:
+        def replace_slack_tid(m):
+            block = m.group(0)
+            if re.search(r'team_id\s*=\s*"[^"]*"', block):
+                return re.sub(r'team_id\s*=\s*"[^"]*"', f'team_id                      = "{slack_tid}"', block)
+            return block
+        content = re.sub(r'slack_config\s*=\s*\{.*?\}', replace_slack_tid, content, flags=re.DOTALL)
+
     # 4. Update top-level variables
     skip_keys = {
         "planned_connectors",
         "enable_connectors",
         "enable_jira_connector",
         "enable_confluence_connector",
+        "enable_slack_connector",
         "enable_people_directory_connector",
         "jira_instance_uri",
         "jira_instance_id",
         "jira_config.instance_uri",
         "jira_config.instance_id",
         "jira_auth",
+        "slack_instance_uri",
+        "slack_team_id",
+        "slack_config.instance_uri",
+        "slack_config.team_id",
+        "slack_auth",
     }
     for k, v in updates.items():
         if k in skip_keys:
@@ -601,12 +684,18 @@ def print_boxed_help(topic=None):
     print("│      tenant_info | jq -r .cloudId                                          │")
     print("│    • Required Auth: OAuth 2.0 (3LO) App with read:jira-work scopes         │")
     print("│                                                                            │")
-    print("│ 3. Google Workspace People Directory                                      │")
-    print("│    • Guide: https://developers.google.com/admin-sdk/directory/v1/guides   │")
-    print("│    • Workspace Admin: https://admin.google.com/ac/owl/domainwidedelegation │")
-    print("│    • Required Scopes: Directory API user.readonly, orgunit.readonly       │")
+    print("│ 3. Slack Enterprise                                                        │")
+    print("│    • Help Center: https://docs.cloud.google.com/gemini/enterprise/docs/    │")
+    print("│      connectors/slack                                                      │")
+    print("│    • Slack Apps Console: https://api.slack.com/apps                        │")
+    print("│    • Default Auth: Google-Managed OAuth 2.0 (v3 Federated + MCP Actions)   │")
     print("│                                                                            │")
-    print("│ 4. Google Cloud Core Parameters                                            │")
+    print("│ 4. Google Workspace People Directory                                       │")
+    print("│    • Guide: https://developers.google.com/admin-sdk/directory/v1/guides    │")
+    print("│    • Workspace Admin: https://admin.google.com/ac/owl/domainwidedelegation │")
+    print("│    • Required Scopes: Directory API user.readonly, orgunit.readonly        │")
+    print("│                                                                            │")
+    print("│ 5. Google Cloud Core Parameters                                            │")
     print("│    • Billing Account ID: https://console.cloud.google.com/billing           │")
     print("│      (Lookup command: gcloud billing accounts list)                        │")
     print("│    • Workspace Customer ID: https://admin.google.com/ac/accountsettings     │")
@@ -758,9 +847,11 @@ def interactive_combo_box(prompt_title, options, default_values=None):
             lines.append("┌" + "─" * 76 + "┐")
             lines.append("│ WHERE TO FIND THIS — Gemini Enterprise Help Center & Credentials".center(78) + "│")
             lines.append("├" + "─" * 76 + "┤")
-            lines.append("│ • Workspace: https://docs.cloud.google.com/gemini/enterprise/docs/connectors/drive │")
-            lines.append("│ • Jira:      https://docs.cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud │")
-            lines.append("│ • Directory: https://developers.google.com/admin-sdk/directory/v1/guides           │")
+            lines.append("│ • Workspace:  https://docs.cloud.google.com/gemini/enterprise/docs/connectors/drive      │")
+            lines.append("│ • Jira:       https://docs.cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud │")
+            lines.append("│ • Confluence: https://docs.cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud │")
+            lines.append("│ • Slack:      https://docs.cloud.google.com/gemini/enterprise/docs/connectors/slack      │")
+            lines.append("│ • Directory:  https://developers.google.com/admin-sdk/directory/v1/guides                │")
             lines.append("└" + "─" * 76 + "┘")
 
         output_str = "\n".join(lines) + "\n"
@@ -908,6 +999,18 @@ def enable_connectors(workdir=".", state_path=None, tfvars_path=None, json_outpu
         if not effective_uri or is_placeholder(effective_uri):
             errors.append("Confluence prerequisite missing: confluence_config.instance_uri (or fallback jira_config.instance_uri) must be configured.")
 
+    if "slack" in planned:
+        slack_cfg = tfvars.get("slack_config", {})
+        slack_uri = str(slack_cfg.get("instance_uri") or tfvars.get("slack_instance_uri") or "").strip()
+        slack_tid = str(slack_cfg.get("team_id") or tfvars.get("slack_team_id") or "").strip()
+        uri_invalid = (not slack_uri or is_placeholder(slack_uri) or "example.slack.com" in slack_uri.lower())
+        tid_invalid = (not slack_tid or slack_tid.upper() in ("T00000000", "E00000000"))
+        if (uri_invalid and tid_invalid) or "example.slack.com" in slack_uri.lower() or slack_tid.upper() in ("T00000000", "E00000000"):
+            errors.append("Slack prerequisite missing: 'slack_config.instance_uri' (and/or non-placeholder 'team_id') must be configured.")
+        slack_modes = slack_cfg.get("connector_modes", ["FEDERATED"])
+        if "DATA_INGESTION" in slack_modes or "FEDERATED" not in slack_modes:
+            errors.append("Slack prerequisite invalid: Slack connector must use FEDERATED mode (connector_modes = [\"FEDERATED\"]).")
+
     if errors:
         if json_output:
             print(json.dumps({"status": "prerequisites_failed", "errors": errors}, indent=2))
@@ -922,6 +1025,7 @@ def enable_connectors(workdir=".", state_path=None, tfvars_path=None, json_outpu
         "enable_connectors": ("workspace" in planned),
         "enable_jira_connector": ("jira" in planned),
         "enable_confluence_connector": ("confluence" in planned),
+        "enable_slack_connector": ("slack" in planned),
         "enable_people_directory_connector": ("people_directory" in planned),
     }
     update_tfvars(actual_tfvars, updates, stage=stage, allow_enable=True, workdir=workdir)
@@ -935,9 +1039,10 @@ def enable_connectors(workdir=".", state_path=None, tfvars_path=None, json_outpu
     else:
         print("=" * 80)
         print("[SUCCESS] Planned connectors enabled in terraform.tfvars:")
-        print(f"  • enable_connectors                = {str(updates['enable_connectors']).lower()}")
-        print(f"  • enable_jira_connector            = {str(updates['enable_jira_connector']).lower()}")
-        print(f"  • enable_confluence_connector      = {str(updates['enable_confluence_connector']).lower()}")
+        print(f"  • enable_connectors                 = {str(updates['enable_connectors']).lower()}")
+        print(f"  • enable_jira_connector             = {str(updates['enable_jira_connector']).lower()}")
+        print(f"  • enable_confluence_connector       = {str(updates['enable_confluence_connector']).lower()}")
+        print(f"  • enable_slack_connector            = {str(updates['enable_slack_connector']).lower()}")
         print(f"  • enable_people_directory_connector = {str(updates['enable_people_directory_connector']).lower()}")
         print("=" * 80)
         print("Next step: Run 'make plan-connectors && make apply-connectors' to provision resources.")
@@ -951,7 +1056,7 @@ def main():
     parser.add_argument("--check", action="store_true", help="Audit variables against planned connectors.")
     parser.add_argument("--json", action="store_true", help="Output audit or operation result in JSON format.")
     parser.add_argument("--apply-json", help="JSON string containing configuration to apply non-interactively.")
-    parser.add_argument("--connectors", help="Comma-separated list of planned connectors (workspace,jira,people_directory).")
+    parser.add_argument("--connectors", help="Comma-separated list of planned connectors (workspace,jira,confluence,slack,people_directory).")
     parser.add_argument("--set", action="append", default=[], help="Set variable key=value (can be used multiple times).")
     parser.add_argument("--enable-connectors", action="store_true", help="Stage 2 helper: Validate prerequisites and flip enable_* = true.")
     parser.add_argument("--workdir", default=".", help="Root directory of Terraform configuration.")
@@ -1034,10 +1139,10 @@ def main():
             if not isinstance(planned, list):
                 print("Error: planned_connectors must be a list of strings", file=sys.stderr)
                 sys.exit(1)
-            valid_set = {"workspace", "jira", "people_directory"}
+            valid_set = {"workspace", "jira", "confluence", "slack", "people_directory"}
             for c in planned:
                 if c not in valid_set:
-                    print(f"Error: Invalid connector '{c}'. Allowed: 'workspace', 'jira', 'people_directory'", file=sys.stderr)
+                    print(f"Error: Invalid connector '{c}'. Allowed: 'workspace', 'jira', 'confluence', 'slack', 'people_directory'", file=sys.stderr)
                     sys.exit(1)
 
         stage = determine_stage(workdir, state_path, tfvars_path)
@@ -1087,15 +1192,33 @@ def main():
             if line and not is_placeholder(line):
                 wizard_updates["jira_instance_uri"] = line
 
+    # If Slack is planned, prompt for workspace URI if missing/placeholder
+    if "slack" in chosen_connectors:
+        existing_slack_uri = tfvars.get("slack_config", {}).get("instance_uri") or tfvars.get("slack_instance_uri") or ""
+        if is_placeholder(existing_slack_uri) and sys.stdin.isatty():
+            print("\nSlack Enterprise Onboarding:")
+            print("Enter Slack workspace URL (e.g. https://your-workspace.slack.com), '?' for help, or Enter to skip:")
+            sys.stdout.write("Slack workspace URL: ")
+            sys.stdout.flush()
+            line = sys.stdin.readline().strip()
+            if line == "?":
+                print_boxed_help()
+                sys.stdout.write("Slack workspace URL: ")
+                sys.stdout.flush()
+                line = sys.stdin.readline().strip()
+            if line and not is_placeholder(line):
+                wizard_updates["slack_instance_uri"] = line
+
     update_tfvars(tfvars_path, wizard_updates, stage=stage, allow_enable=False, workdir=workdir)
 
     print()
     print("=" * 80)
     print(f"[SUCCESS] Configuration saved to {tfvars_path}:")
-    print(f"  • planned_connectors               = {json.dumps(chosen_connectors)}")
-    print(f"  • enable_connectors                = false (Stage 0 safety)")
-    print(f"  • enable_jira_connector            = false (Stage 0 safety)")
-    print(f"  • enable_confluence_connector      = false (Stage 0 safety)")
+    print(f"  • planned_connectors                = {json.dumps(chosen_connectors)}")
+    print(f"  • enable_connectors                 = false (Stage 0 safety)")
+    print(f"  • enable_jira_connector             = false (Stage 0 safety)")
+    print(f"  • enable_confluence_connector       = false (Stage 0 safety)")
+    print(f"  • enable_slack_connector            = false (Stage 0 safety)")
     print(f"  • enable_people_directory_connector = false (Stage 0 safety)")
     print("=" * 80)
 

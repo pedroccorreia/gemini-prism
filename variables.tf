@@ -78,14 +78,14 @@ variable "sa_email" {
 
 variable "planned_connectors" {
   type        = list(string)
-  description = "List of enterprise connectors planned for deployment (workspace, jira, confluence, people_directory)"
+  description = "List of enterprise connectors planned for deployment (workspace, jira, confluence, slack, people_directory)"
   default     = ["workspace"]
 
   validation {
     condition = alltrue([
-      for c in var.planned_connectors : contains(["workspace", "jira", "confluence", "people_directory"], c)
+      for c in var.planned_connectors : contains(["workspace", "jira", "confluence", "slack", "people_directory"], c)
     ])
-    error_message = "Each element of planned_connectors must be one of: 'workspace', 'jira', 'confluence', 'people_directory'."
+    error_message = "Each element of planned_connectors must be one of: 'workspace', 'jira', 'confluence', 'slack', 'people_directory'."
   }
 }
 
@@ -296,6 +296,75 @@ variable "confluence_config" {
 
   validation {
     condition     = contains(coalesce(var.confluence_config.connector_modes, ["FEDERATED"]), "FEDERATED") && !contains(coalesce(var.confluence_config.connector_modes, ["FEDERATED"]), "DATA_INGESTION")
+    error_message = "All connectors must use FEDERATED mode (connector_modes = [\"FEDERATED\"])."
+  }
+}
+
+variable "enable_slack_connector" {
+  type        = bool
+  description = "Whether to provision the Slack Enterprise Discovery Engine data connector per environment. Set to true after Slack OAuth/Bot credentials are configured."
+  default     = false
+}
+
+variable "slack_auth_type" {
+  type        = string
+  description = "Authentication method for Slack connector: 'OAUTH' (or 'OAUTH2') for v3 federated/actions (Google-managed or BYO app), or 'BOT_TOKEN' ('API_TOKEN' / 'USER_TOKEN') for legacy v1 ingestion"
+  default     = "OAUTH"
+
+  validation {
+    condition     = contains(["OAUTH", "OAUTH2", "BOT_TOKEN", "USER_TOKEN", "API_TOKEN"], var.slack_auth_type)
+    error_message = "slack_auth_type must be one of 'OAUTH', 'OAUTH2', 'BOT_TOKEN', 'USER_TOKEN', or 'API_TOKEN'."
+  }
+}
+
+variable "slack_auth" {
+  type = object({
+    bot_token     = optional(string, "")
+    user_token    = optional(string, "")
+    api_token     = optional(string, "")
+    client_id     = optional(string, "")
+    client_secret = optional(string, "")
+    refresh_token = optional(string, "")
+    team_id       = optional(string, "")
+  })
+  description = "Sensitive authentication credentials for Slack connector (pass via TF_VAR_slack_auth environment variable)"
+  default     = {}
+  sensitive   = true
+}
+
+variable "slack_config" {
+  type = object({
+    instance_uri                 = optional(string, "")
+    team_id                      = optional(string, "")
+    collection_id                = optional(string, "slack-collection")
+    data_source                  = optional(string, "slack")
+    data_source_version          = optional(number, null)
+    connector_modes              = optional(list(string), ["FEDERATED"])
+    sync_mode                    = optional(string, "PERIODIC")
+    refresh_interval             = optional(string, "43200s")
+    incremental_refresh_interval = optional(string, "10800s")
+    entities                     = optional(list(string), ["conversation", "message", "file"])
+    channels_include             = optional(list(string), [])
+    channels_exclude             = optional(list(string), [])
+    include_private_channels     = optional(bool, false)
+    include_dms                  = optional(bool, false)
+    static_ip_enabled            = optional(bool, false)
+    enable_actions               = optional(bool, false)
+    enabled_actions              = optional(list(string), ["slack_send_message", "slack_schedule_message", "slack_create_canvas", "slack_send_message_draft"])
+    auto_run_disabled            = optional(bool, false)
+    incremental_sync_disabled    = optional(bool, false)
+    extra_params                 = optional(map(string), {})
+  })
+  description = "Configuration parameters for the Slack Enterprise data connector"
+  default     = {}
+
+  validation {
+    condition     = coalesce(var.slack_config.data_source, "slack") == "slack"
+    error_message = "slack_config.data_source must be 'slack'."
+  }
+
+  validation {
+    condition     = contains(coalesce(var.slack_config.connector_modes, ["FEDERATED"]), "FEDERATED") && !contains(coalesce(var.slack_config.connector_modes, ["FEDERATED"]), "DATA_INGESTION")
     error_message = "All connectors must use FEDERATED mode (connector_modes = [\"FEDERATED\"])."
   }
 }

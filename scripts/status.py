@@ -58,8 +58,11 @@ def parse_tfvars(tfvars_path):
         lines.append(line)
     clean_text = "\n".join(lines)
 
+    # Strip inline empty maps (e.g. extra_params = {}) before matching top-level maps
+    clean_text_for_maps = re.sub(r'([a-zA-Z0-9_-]+)\s*=\s*\{\s*\}', '', clean_text)
+
     # Match maps first: key = { ... }
-    map_matches = re.findall(r'^\s*([a-zA-Z0-9_-]+)\s*=\s*\{(.*?)\}', clean_text, re.MULTILINE | re.DOTALL)
+    map_matches = re.findall(r'^\s*([a-zA-Z0-9_-]+)\s*=\s*\{(.*?)\}', clean_text_for_maps, re.MULTILINE | re.DOTALL)
     for k, raw_map in map_matches:
         inner = {}
         # Parse lists inside map: key = ["a", "b"] or key = ['a', 'b']
@@ -86,7 +89,7 @@ def parse_tfvars(tfvars_path):
         data[k] = inner
 
     # Remove maps from text to prevent top-level regex from colliding with map keys
-    text_without_maps = re.sub(r'^\s*[a-zA-Z0-9_-]+\s*=\s*\{.*?\}', '', clean_text, flags=re.MULTILINE | re.DOTALL)
+    text_without_maps = re.sub(r'^\s*[a-zA-Z0-9_-]+\s*=\s*\{.*?\}', '', clean_text_for_maps, flags=re.MULTILINE | re.DOTALL)
 
     # Match simple key = "value"
     str_matches = re.findall(r'^\s*([a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"', text_without_maps, re.MULTILINE)
@@ -310,10 +313,11 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
             "exit_code": 0
         }
 
-    # 6. Stage 2 DWD / Jira / Confluence Human Gate check
+    # 6. Stage 2 DWD / Jira / Confluence / Slack Human Gate check
     enable_connectors = tfvars.get("enable_connectors", False)
     enable_jira_connector = tfvars.get("enable_jira_connector", False)
     enable_confluence_connector = tfvars.get("enable_confluence_connector", False)
+    enable_slack_connector = tfvars.get("enable_slack_connector", False)
     enable_people_directory_connector = tfvars.get("enable_people_directory_connector", False)
 
     # Validate planned_connectors
@@ -330,28 +334,30 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 "handoff_template": "inputs",
                 "exit_code": 1
             }
-        invalid = [c for c in planned_connectors if c not in ("workspace", "jira", "confluence", "people_directory")]
+        invalid = [c for c in planned_connectors if c not in ("workspace", "jira", "confluence", "slack", "people_directory")]
         if invalid:
             return {
                 "phase": 2,
                 "phase_name": PHASES[2],
                 "owner": "human",
-                "blockers": [f"Invalid connector(s) in planned_connectors: {', '.join(invalid)}. Allowed: workspace, jira, confluence, people_directory"],
+                "blockers": [f"Invalid connector(s) in planned_connectors: {', '.join(invalid)}. Allowed: workspace, jira, confluence, slack, people_directory"],
                 "next_action": "Run 'make configure' to select valid connectors",
                 "handoff_template": "inputs",
                 "exit_code": 1
             }
     else:
-        if enable_jira_connector and not enable_connectors and not enable_confluence_connector and not enable_people_directory_connector:
+        if enable_jira_connector and not enable_connectors and not enable_confluence_connector and not enable_slack_connector and not enable_people_directory_connector:
             planned_connectors = ["jira"]
-        elif enable_confluence_connector and not enable_connectors and not enable_jira_connector and not enable_people_directory_connector:
+        elif enable_confluence_connector and not enable_connectors and not enable_jira_connector and not enable_slack_connector and not enable_people_directory_connector:
             planned_connectors = ["confluence"]
+        elif enable_slack_connector and not enable_connectors and not enable_jira_connector and not enable_confluence_connector and not enable_people_directory_connector:
+            planned_connectors = ["slack"]
         else:
             planned_connectors = ["workspace"]
 
-    # If neither connector is enabled, block on human authorization gate and guide to make enable-connectors
-    if not enable_connectors and not enable_jira_connector and not enable_confluence_connector and not enable_people_directory_connector:
-        if "workspace" in planned_connectors or ("jira" not in planned_connectors and "confluence" not in planned_connectors and "people_directory" not in planned_connectors):
+    # If no connector is enabled, block on human authorization gate and guide to make enable-connectors
+    if not enable_connectors and not enable_jira_connector and not enable_confluence_connector and not enable_slack_connector and not enable_people_directory_connector:
+        if "workspace" in planned_connectors or ("jira" not in planned_connectors and "confluence" not in planned_connectors and "slack" not in planned_connectors and "people_directory" not in planned_connectors):
             return {
                 "phase": 2,
                 "phase_name": PHASES[2],
@@ -379,6 +385,16 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 "blockers": ["Atlassian Confluence authorization pending in Atlassian Developer Console"],
                 "next_action": "Complete authorizations (run 'make confluence-checklist'), then run 'make enable-connectors'",
                 "handoff_template": "confluence",
+                "exit_code": 2
+            }
+        elif "slack" in planned_connectors:
+            return {
+                "phase": 2,
+                "phase_name": "slack_authorization",
+                "owner": "human",
+                "blockers": ["Slack Enterprise authorization pending"],
+                "next_action": "Complete authorizations (run 'make slack-checklist'), then run 'make enable-connectors'",
+                "handoff_template": "slack",
                 "exit_code": 2
             }
         else:
@@ -412,6 +428,16 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 "blockers": ["Planned Confluence connector pending authorization / enablement"],
                 "next_action": "Complete authorizations (run 'make confluence-checklist'), then run 'make enable-connectors'",
                 "handoff_template": "confluence",
+                "exit_code": 2
+            }
+        if "slack" in planned_connectors and not enable_slack_connector:
+            return {
+                "phase": 2,
+                "phase_name": "slack_authorization",
+                "owner": "human",
+                "blockers": ["Planned Slack connector pending authorization / enablement"],
+                "next_action": "Complete authorizations (run 'make slack-checklist'), then run 'make enable-connectors'",
+                "handoff_template": "slack",
                 "exit_code": 2
             }
         if "workspace" in planned_connectors and not enable_connectors:
@@ -513,23 +539,54 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 "exit_code": 2
             }
 
+    # Slack connector onboarding validation if enabled
+    if enable_slack_connector:
+        slack_cfg = tfvars.get("slack_config", {})
+        instance_uri = str(slack_cfg.get("instance_uri", "")).strip()
+        team_id = str(slack_cfg.get("team_id", "")).strip()
+        uri_invalid = (not instance_uri or "example.slack.com" in instance_uri.lower())
+        team_invalid = (not team_id or team_id.upper() in ("T00000000", "E00000000"))
+        if (uri_invalid and team_invalid) or "example.slack.com" in instance_uri.lower() or team_id.upper() in ("T00000000", "E00000000"):
+            return {
+                "phase": 2,
+                "phase_name": "slack_authorization",
+                "owner": "human",
+                "blockers": ["Slack Enterprise workspace URI / team_id not configured or placeholder in terraform.tfvars"],
+                "next_action": "make slack-checklist",
+                "handoff_template": "slack",
+                "exit_code": 2
+            }
+        connector_modes = slack_cfg.get("connector_modes")
+        if isinstance(connector_modes, list) and ("DATA_INGESTION" in connector_modes or "FEDERATED" not in connector_modes):
+            return {
+                "phase": 2,
+                "phase_name": "slack_authorization",
+                "owner": "human",
+                "blockers": ["Slack connector must use FEDERATED mode (connector_modes = [\"FEDERATED\"]) in terraform.tfvars"],
+                "next_action": "make slack-checklist",
+                "handoff_template": "slack",
+                "exit_code": 2
+            }
+
     # 7. Stage 3 Connectors & Engines check
     search_engines_output = state_outputs.get("search_engine_names", {}).get("value", {})
     assistants_output = state_outputs.get("assistant_names", {}).get("value", {})
 
+    # Collect provisioned connector keys from state if any optional connector is enabled
+    connector_keys = set()
+    if (enable_jira_connector or enable_confluence_connector or enable_slack_connector or enable_people_directory_connector) and state and "_error" not in state:
+        for res in state.get("resources", []):
+            if res.get("type") == "google_discovery_engine_data_connector":
+                for inst in res.get("instances", []):
+                    if inst.get("index_key"):
+                        connector_keys.add(inst.get("index_key"))
+        data_connectors_output = state_outputs.get("data_connector_names", {}).get("value", {})
+        if isinstance(data_connectors_output, dict):
+            connector_keys.update(data_connectors_output.keys())
+
     # Check Jira connector existence in state if enabled
     jira_connectors_present = True
     if enable_jira_connector:
-        connector_keys = set()
-        if state and "_error" not in state:
-            for res in state.get("resources", []):
-                if res.get("type") == "google_discovery_engine_data_connector":
-                    for inst in res.get("instances", []):
-                        if inst.get("index_key"):
-                            connector_keys.add(inst.get("index_key"))
-            data_connectors_output = state_outputs.get("data_connector_names", {}).get("value", {})
-            if isinstance(data_connectors_output, dict):
-                connector_keys.update(data_connectors_output.keys())
         for env in environments:
             if f"{env}-jira" not in connector_keys:
                 jira_connectors_present = False
@@ -538,34 +595,22 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
     # Check Confluence connector existence in state if enabled
     confluence_connectors_present = True
     if enable_confluence_connector:
-        connector_keys = set()
-        if state and "_error" not in state:
-            for res in state.get("resources", []):
-                if res.get("type") == "google_discovery_engine_data_connector":
-                    for inst in res.get("instances", []):
-                        if inst.get("index_key"):
-                            connector_keys.add(inst.get("index_key"))
-            data_connectors_output = state_outputs.get("data_connector_names", {}).get("value", {})
-            if isinstance(data_connectors_output, dict):
-                connector_keys.update(data_connectors_output.keys())
         for env in environments:
             if f"{env}-confluence" not in connector_keys:
                 confluence_connectors_present = False
                 break
 
+    # Check Slack connector existence in state if enabled
+    slack_connectors_present = True
+    if enable_slack_connector:
+        for env in environments:
+            if f"{env}-slack" not in connector_keys:
+                slack_connectors_present = False
+                break
+
     # Check People Directory connector existence in state if enabled
     people_directory_connectors_present = True
     if enable_people_directory_connector:
-        connector_keys = set()
-        if state and "_error" not in state:
-            for res in state.get("resources", []):
-                if res.get("type") == "google_discovery_engine_data_connector":
-                    for inst in res.get("instances", []):
-                        if inst.get("index_key"):
-                            connector_keys.add(inst.get("index_key"))
-            data_connectors_output = state_outputs.get("data_connector_names", {}).get("value", {})
-            if isinstance(data_connectors_output, dict):
-                connector_keys.update(data_connectors_output.keys())
         for env in environments:
             if f"{env}-people-directory" not in connector_keys:
                 people_directory_connectors_present = False
@@ -578,6 +623,7 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
         all(env in assistants_output for env in environments) and
         jira_connectors_present and
         confluence_connectors_present and
+        slack_connectors_present and
         people_directory_connectors_present
     )
 
@@ -805,6 +851,46 @@ def print_confluence_checklist():
     print(json.dumps(data, indent=2))
 
 
+def print_slack_checklist():
+    """Fetch terraform slack_checklist output (or fallback to terraform.tfvars) and output JSON."""
+    try:
+        raw = subprocess.check_output(["terraform", "output", "-json", "slack_checklist"], text=True, stderr=subprocess.DEVNULL)
+        data = json.loads(raw)
+    except Exception:
+        # Fallback to reading terraform.tfvars directly
+        tfvars = parse_tfvars(os.path.join(os.getcwd(), "terraform.tfvars")) or {}
+        slack_cfg = tfvars.get("slack_config", {})
+        envs = tfvars.get("environments", ["non-prod", "prod"])
+        uri = slack_cfg.get("instance_uri", "")
+        team_id = slack_cfg.get("team_id", "")
+        auth_type = tfvars.get("slack_auth_type", "OAUTH")
+        data = {
+            env: {
+                "project_id": f"{tfvars.get('project_id_prefix', '')}{tfvars.get('customer_id', 'customer')}-{env}",
+                "instance_uri": uri,
+                "team_id": team_id,
+                "auth_type": auth_type,
+                "data_source_version": slack_cfg.get("data_source_version") or 3,
+                "oauth_callback_url": "https://vertexaisearch.cloud.google.com/oauth-redirect",
+                "slack_api_console_url": "https://api.slack.com/apps",
+                "slack_admin_console_url": "https://app.slack.com/manage",
+                "oauth_scopes": [
+                    "channels:read",
+                    "channels:history",
+                    "groups:read",
+                    "groups:history",
+                    "files:read",
+                    "users:read",
+                    "users:read.email"
+                ],
+                "entities": slack_cfg.get("entities", ["conversation", "message", "file"])
+            }
+            for env in envs
+        }
+
+    print(json.dumps(data, indent=2))
+
+
 def print_people_directory_checklist():
     """Fetch terraform people_directory_checklist output and output JSON."""
     try:
@@ -841,6 +927,7 @@ def main():
     parser.add_argument("--dwd-checklist", action="store_true", help="Print DWD checklist enriched with 21-digit numeric Client ID.")
     parser.add_argument("--jira-checklist", action="store_true", help="Print Jira checklist enriched with discovered Atlassian cloudId.")
     parser.add_argument("--confluence-checklist", action="store_true", help="Print Confluence checklist enriched with discovered Atlassian cloudId.")
+    parser.add_argument("--slack-checklist", action="store_true", help="Print Slack Enterprise onboarding checklist.")
     parser.add_argument("--people-directory-checklist", action="store_true", help="Print Google People Directory connector onboarding checklist.")
     parser.add_argument("--deep", action="store_true", help="Perform deep drift check via terraform plan.")
     parser.add_argument("--workdir", default=".", help="Root directory of the Terraform repository.")
@@ -861,6 +948,10 @@ def main():
 
     if args.confluence_checklist:
         print_confluence_checklist()
+        sys.exit(0)
+
+    if args.slack_checklist:
+        print_slack_checklist()
         sys.exit(0)
 
     if args.people_directory_checklist:

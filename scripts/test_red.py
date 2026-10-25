@@ -1128,6 +1128,225 @@ class TestStatusPhaseDetection(unittest.TestCase):
         self.assertEqual(cfg.get("sync_mode"), "INCREMENTAL")
         self.assertEqual(cfg.get("entities"), ["user_profile", "reporting_hierarchy"])
 
+    def test_status_phase_2_slack_human_gate_when_config_placeholder(self):
+        """enable_slack_connector=true with missing or placeholder instance_uri/team_id must trigger Stage 2 slack gate (exit 2)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod", "prod"],
+            "enable_connectors": True,
+            "enable_slack_connector": True,
+            "slack_config": {
+                "instance_uri": "https://example.slack.com",
+                "team_id": "T00000000",
+                "data_source": "slack"
+            }
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod", "prod": "testcust-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 2)
+        self.assertEqual(status["phase"], 2)
+        self.assertEqual(status["handoff_template"], "slack")
+        self.assertIn("slack", status["blockers"][0].lower())
+
+    def test_status_phase_2_slack_rejects_data_ingestion_mode(self):
+        """enable_slack_connector=true with DATA_INGESTION mode must trigger Stage 2 slack gate (exit 2)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod"],
+            "enable_connectors": True,
+            "enable_slack_connector": True,
+            "slack_config": {
+                "instance_uri": "https://custom-team.slack.com",
+                "connector_modes": ["DATA_INGESTION"]
+            }
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 2)
+        self.assertEqual(status["phase"], 2)
+        self.assertEqual(status["handoff_template"], "slack")
+        self.assertIn("FEDERATED", status["blockers"][0])
+
+    def test_status_phase_2_slack_only_gate_when_workspace_connectors_disabled(self):
+        """Slack-only deployment (enable_connectors=false, enable_slack_connector=true) with placeholder URI must trigger slack gate, NOT DWD gate."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod", "prod"],
+            "enable_connectors": False,
+            "enable_slack_connector": True,
+            "slack_config": {
+                "instance_uri": "https://example.slack.com",
+                "team_id": "T00000000",
+                "data_source": "slack"
+            }
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod", "prod": "testcust-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 2)
+        self.assertEqual(status["phase"], 2)
+        self.assertEqual(status["handoff_template"], "slack")
+        self.assertIn("slack", status["blockers"][0].lower())
+
+    def test_status_phase_3_ready_slack_only_with_valid_config(self):
+        """Slack-only deployment (enable_connectors=false, enable_slack_connector=true) with valid URI/team_id must advance to Phase 3 (exit 0)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod", "prod"],
+            "enable_connectors": False,
+            "enable_slack_connector": True,
+            "slack_config": {
+                "instance_uri": "https://custom-team.slack.com",
+                "team_id": "T01234567",
+                "data_source": "slack"
+            }
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod", "prod": "testcust-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 0)
+        self.assertEqual(status["phase"], 3)
+        self.assertEqual(status["phase_name"], "connectors_and_engines_apply")
+
+    def test_status_phase_3_stays_when_slack_connector_missing_from_state(self):
+        """When workspace connectors exist in state but slack connector is missing, status must stay in Phase 3."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["prod"],
+            "enable_connectors": True,
+            "enable_slack_connector": True,
+            "slack_config": {
+                "instance_uri": "https://custom-team.slack.com",
+                "team_id": "T01234567",
+                "data_source": "slack"
+            }
+        })
+        state_path = self._create_state(
+            project_ids={"prod": "testcust-prod"},
+            search_engines={"prod": "projects/123/locations/global/collections/default_collection/engines/engine-1"},
+            assistants={"prod": "projects/123/locations/global/collections/default_collection/engines/engine-1/assistants/default_assistant"}
+        )
+        with open(state_path, "r", encoding="utf-8") as f:
+            st = json.load(f)
+        st["outputs"]["data_connector_names"] = {
+            "value": {
+                "prod-google_mail": "projects/123/locations/global/collections/mail-col/dataConnector"
+            }
+        }
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 0)
+        self.assertEqual(status["phase"], 3)
+        self.assertEqual(status["phase_name"], "connectors_and_engines_apply")
+
+    def test_parse_tfvars_preserves_nested_slack_config_types(self):
+        """parse_tfvars must parse booleans, lists, and strings inside slack_config without clobbering."""
+        raw_tfvars = {
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "enable_slack_connector": True,
+            "slack_auth_type": "OAUTH",
+            "slack_config": {
+                "instance_uri": "https://custom.slack.com",
+                "team_id": "T01234567",
+                "include_private_channels": False,
+                "enable_actions": True,
+                "channels_include": ["C01111111", "C02222222"],
+                "entities": ["conversation", "message", "file"]
+            }
+        }
+        tfvars_path = self._create_tfvars(raw_tfvars)
+        parsed = status_module.parse_tfvars(tfvars_path)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.get("slack_auth_type"), "OAUTH")
+        cfg = parsed.get("slack_config", {})
+        self.assertEqual(cfg.get("instance_uri"), "https://custom.slack.com")
+        self.assertEqual(cfg.get("team_id"), "T01234567")
+        self.assertIs(cfg.get("include_private_channels"), False)
+        self.assertIs(cfg.get("enable_actions"), True)
+        self.assertEqual(cfg.get("channels_include"), ["C01111111", "C02222222"])
+        self.assertEqual(cfg.get("entities"), ["conversation", "message", "file"])
+
+    @patch("subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "terraform"))
+    def test_print_slack_checklist_fallback_defaults(self, _mock_tf):
+        """print_slack_checklist fallback must emit v3 OAUTH and conversation/message/file entities."""
+        import io
+        from contextlib import redirect_stdout
+
+        prev_cwd = os.getcwd()
+        os.chdir(self.temp_dir.name)
+        try:
+            self._create_tfvars({
+                "customer_id": "testcust",
+                "environments": ["prod"],
+                "slack_config": {
+                    "instance_uri": "https://custom.slack.com",
+                    "team_id": "T01234567"
+                }
+            })
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                status_module.print_slack_checklist()
+            out = json.loads(buf.getvalue())
+            self.assertIn("prod", out)
+            self.assertEqual(out["prod"]["auth_type"], "OAUTH")
+            self.assertEqual(out["prod"]["data_source_version"], 3)
+            self.assertEqual(out["prod"]["entities"], ["conversation", "message", "file"])
+        finally:
+            os.chdir(prev_cwd)
+
 
 class TestVerifyConnectors(unittest.TestCase):
     """Test cases for verify.py multi-entity and third-party data connector inspection."""
@@ -1296,6 +1515,42 @@ class TestVerifyConnectors(unittest.TestCase):
         self.assertEqual(status, "ERROR")
 
     @patch("scripts.verify.make_request")
+    def test_verify_check_data_connectors_multi_entity_slack(self, mock_make_request):
+        """check_data_connectors must inspect multi-entity Slack v3 federated connector and surface entities count."""
+        def side_effect(url, **kwargs):
+            if url.endswith("/collections"):
+                return {
+                    "collections": [
+                        {"name": "projects/test-proj/locations/global/collections/slack-collection"}
+                    ]
+                }
+            elif url.endswith("/dataConnector"):
+                return {
+                    "name": "projects/test-proj/locations/global/collections/slack-collection/dataConnector",
+                    "dataSource": "slack",
+                    "state": "ACTIVE",
+                    "actionState": "ACTIVE",
+                    "connectorModes": ["FEDERATED"],
+                    "entities": [
+                        {"entityName": "conversation"},
+                        {"entityName": "message"},
+                        {"entityName": "file"}
+                    ]
+                }
+            return {}
+
+        mock_make_request.side_effect = side_effect
+
+        results = verify_module.check_data_connectors("test-proj", "global", "mock-token")
+        self.assertEqual(len(results), 1)
+        component, status, details = results[0]
+        self.assertIn("Connector (slack)", component)
+        self.assertEqual(status, "ACTIVE")
+        self.assertIn("Modes: FEDERATED", details)
+        self.assertIn("Entities: 3", details)
+        self.assertIn("ActionState: ACTIVE", details)
+
+    @patch("scripts.verify.make_request")
     def test_verify_check_data_connectors_people_directory(self, mock_make_request):
         """check_data_connectors must inspect Google People Directory connector and surface entity counts."""
         def side_effect(url, **kwargs):
@@ -1362,7 +1617,7 @@ class TestDocumentationContracts(unittest.TestCase):
                 )
 
     def test_agents_md_contract(self):
-        """AGENTS.md must exist, be <= 150 lines, and contain all 5 hand-off templates."""
+        """AGENTS.md must exist, be <= 150 lines, and contain all 9 hand-off templates."""
         agents_path = os.path.join(REPO_ROOT, "AGENTS.md")
         self.assertTrue(os.path.exists(agents_path), "AGENTS.md must exist")
 
@@ -1372,13 +1627,16 @@ class TestDocumentationContracts(unittest.TestCase):
         self.assertLessEqual(len(lines), 150, f"AGENTS.md must be <= 150 lines, got {len(lines)}")
 
         content = "".join(lines)
-        required_templates = ["`dwd`", "`jira`", "`permissions`", "`subscription`", "`state_mismatch`", "`identity`"]
+        required_templates = [
+            "`inputs`", "`dwd`", "`jira`", "`confluence`", "`slack`",
+            "`permissions`", "`subscription`", "`state_mismatch`", "`identity`"
+        ]
         for tmpl in required_templates:
             self.assertIn(tmpl, content, f"AGENTS.md missing hand-off template: {tmpl}")
 
     def test_relative_markdown_links(self):
         """Relative file links across documentation must resolve to existing files."""
-        doc_files = ["README.md", "RUNBOOK.md", "AGENTS.md", "GEMINI.md"]
+        doc_files = ["README.md", "RUNBOOK.md", "AGENTS.md", "GEMINI.md", "PRACTITIONERS_GUIDE.md", "docs/CONNECTORS_ROADMAP.md"]
         link_pattern = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
 
         for doc in doc_files:
@@ -1401,7 +1659,7 @@ class TestDocumentationContracts(unittest.TestCase):
                 if clean_target.startswith("file://"):
                     resolved_path = clean_target.replace("file://", "")
                 else:
-                    resolved_path = os.path.normpath(os.path.join(REPO_ROOT, clean_target))
+                    resolved_path = os.path.normpath(os.path.join(os.path.dirname(doc_path), clean_target))
 
                 self.assertTrue(
                     os.path.exists(resolved_path),
@@ -1432,13 +1690,30 @@ class TestTerraformDefaultsContract(unittest.TestCase):
         with open(main_tf_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        self.assertIn("effective_folder_id = trimspace(coalesce(var.folder_id, \"\")) != \"\" ? trimspace(var.folder_id) : null", content)
-        self.assertIn("effective_org_id    = local.effective_folder_id == null && trimspace(coalesce(var.org_id, \"\")) != \"\" ? trimspace(var.org_id) : null", content)
-        self.assertIn("effective_sa_email  = trimspace(coalesce(var.sa_email, \"\")) != \"\" ? trimspace(var.sa_email) : null", content)
+        self.assertIn("effective_folder_id = trimspace(try(coalesce(var.folder_id), \"\")) != \"\" ? trimspace(var.folder_id) : null", content)
+        self.assertIn("effective_org_id    = local.effective_folder_id == null && trimspace(try(coalesce(var.org_id), \"\")) != \"\" ? trimspace(var.org_id) : null", content)
+        self.assertIn("effective_sa_email  = trimspace(try(coalesce(var.sa_email), \"\")) != \"\" ? trimspace(var.sa_email) : null", content)
         self.assertIn("folder_id       = local.effective_folder_id", content)
         self.assertIn("org_id          = local.effective_org_id", content)
         self.assertIn("for_each = local.effective_sa_email != null ? local.environments : {}", content)
         self.assertIn("member   = \"serviceAccount:${local.effective_sa_email}\"", content)
+
+    def test_slack_v3_federated_defaults_contract(self):
+        """Slack connector defaults must align with Discovery Engine v3 PUBLIC_GA Federated + Actions spec."""
+        with open(os.path.join(REPO_ROOT, "variables.tf"), "r", encoding="utf-8") as f:
+            vars_content = f.read()
+        with open(os.path.join(REPO_ROOT, "terraform.tfvars.example"), "r", encoding="utf-8") as f:
+            example_content = f.read()
+        with open(os.path.join(REPO_ROOT, "main.tf"), "r", encoding="utf-8") as f:
+            main_content = f.read()
+
+        self.assertTrue(re.search(r'^\s*enable_slack_connector\s*=\s*false\b', example_content, re.MULTILINE))
+        self.assertTrue(re.search(r'^\s*slack_auth_type\s*=\s*"OAUTH"', example_content, re.MULTILINE))
+        self.assertIn('entities                     = optional(list(string), ["conversation", "message", "file"])', vars_content)
+        self.assertIn('incremental_refresh_interval = optional(string, "10800s")', vars_content)
+        self.assertIn('"unused_auth_param" = "unused"', main_content)
+        self.assertIn('https://mcp.slack.com', main_content)
+        self.assertIn('"ByoOAuth"', main_content)
 
     def test_tfvars_example_defaults_people_directory(self):
         """terraform.tfvars.example must define enable_people_directory_connector defaulting to false."""
@@ -1629,6 +1904,8 @@ class TestConfigureCLI(unittest.TestCase):
         values = [opt["value"] for opt in options]
         self.assertIn("workspace", values)
         self.assertIn("jira", values)
+        self.assertIn("confluence", values)
+        self.assertIn("slack", values)
         self.assertIn("people_directory", values)
 
         for opt in options:
@@ -1699,9 +1976,11 @@ class TestConfigureCLI(unittest.TestCase):
     def test_configure_stage_0_safety_guard_forces_enable_false(self):
         """In Stage 0, --apply-json strictly forces enable_* = false regardless of input."""
         payload = json.dumps({
-            "planned_connectors": ["workspace", "jira", "people_directory"],
+            "planned_connectors": ["workspace", "jira", "confluence", "slack", "people_directory"],
             "enable_connectors": True,
             "enable_jira_connector": True,
+            "enable_confluence_connector": True,
+            "enable_slack_connector": True,
             "enable_people_directory_connector": True
         })
         proc = self._run_configure(["--workdir", self.temp_dir.name, "--apply-json", payload])
@@ -1709,9 +1988,11 @@ class TestConfigureCLI(unittest.TestCase):
 
         tfvars_path = os.path.join(self.temp_dir.name, "terraform.tfvars")
         parsed = configure_module.parse_tfvars(tfvars_path)
-        self.assertEqual(parsed.get("planned_connectors"), ["workspace", "jira", "people_directory"])
+        self.assertEqual(parsed.get("planned_connectors"), ["workspace", "jira", "confluence", "slack", "people_directory"])
         self.assertFalse(parsed.get("enable_connectors"))
         self.assertFalse(parsed.get("enable_jira_connector"))
+        self.assertFalse(parsed.get("enable_confluence_connector"))
+        self.assertFalse(parsed.get("enable_slack_connector"))
         self.assertFalse(parsed.get("enable_people_directory_connector"))
 
     def test_configure_enable_connectors_stage_0_refusal(self):
@@ -1733,14 +2014,19 @@ class TestConfigureCLI(unittest.TestCase):
             "company_domain": "custcorp.com",
             "workspace_customer_id": "C0998877",
             "billing_account": "012345-678901-234567",
-            "planned_connectors": ["workspace", "jira"],
+            "planned_connectors": ["workspace", "jira", "slack"],
             "jira_config": {
                 "instance_uri": "https://custcorp.atlassian.net",
+                "connector_modes": ["FEDERATED"]
+            },
+            "slack_config": {
+                "instance_uri": "https://custcorp.slack.com",
                 "connector_modes": ["FEDERATED"]
             },
             "jira_auth": "dummy-token-for-test",
             "enable_connectors": False,
             "enable_jira_connector": False,
+            "enable_slack_connector": False,
             "enable_people_directory_connector": False
         })
 
@@ -1751,6 +2037,7 @@ class TestConfigureCLI(unittest.TestCase):
         parsed = configure_module.parse_tfvars(tfvars_path)
         self.assertTrue(parsed.get("enable_connectors"))
         self.assertTrue(parsed.get("enable_jira_connector"))
+        self.assertTrue(parsed.get("enable_slack_connector"))
         self.assertFalse(parsed.get("enable_people_directory_connector"))
 
     def test_configure_check_success_when_all_variables_configured(self):
@@ -1997,7 +2284,7 @@ class TestBranchAndIssueContracts(unittest.TestCase):
     """Contract tests for git feature branch and GitHub issue specification/automation."""
 
     def test_git_branch_contract(self):
-        """Active git branch must be feat/interactive-connector-onboarding or main."""
+        """Active git branch must be a recognized feature branch, main, or CI detached HEAD."""
         proc = subprocess.run(
             ["git", "branch", "--show-current"],
             cwd=REPO_ROOT,
@@ -2005,7 +2292,10 @@ class TestBranchAndIssueContracts(unittest.TestCase):
             text=True
         )
         self.assertEqual(proc.returncode, 0)
-        self.assertIn(proc.stdout.strip(), ["feat/interactive-connector-onboarding", "main"])
+        self.assertIn(
+            proc.stdout.strip(),
+            ["Slack-Data-Connector", "feat/interactive-connector-onboarding", "main", ""]
+        )
 
     def test_issue_05_specification_contract(self):
         """.github/issues/05_interactive_connector_onboarding.md must exist and satisfy schema."""

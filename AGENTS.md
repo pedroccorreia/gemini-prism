@@ -35,6 +35,7 @@ When entering Stage 0 (`make status --json` reports `phase: 0`):
 | **Stage 2** | Domain-Wide Delegation authorization | `enable_connectors = true` in tfvars | `dwd` |
 | **Stage 2** | Atlassian Jira authorization / URI missing | Valid Jira URI & credentials configured | `jira` |
 | **Stage 2** | Atlassian Confluence authorization / URI missing | Valid Confluence URI & credentials configured | `confluence` |
+| **Stage 2** | Slack Enterprise authorization / URI missing | Valid Slack URI / `team_id` & credentials configured | `slack` |
 | **Stage 4** | Missing billing subscription IDs | Subscription IDs set in tfvars | `subscription` |
 
 ## Phase Detection (`make status --json`)
@@ -75,6 +76,13 @@ Run `make confluence-checklist` to view the OAuth 2.0 (3LO) callback URL, requir
 Configure Atlassian Developer Console app or API token, set TF_VAR_confluence_auth (or reuse TF_VAR_jira_auth), and update confluence_config.instance_uri in terraform.tfvars.
 ```
 
+### `slack`
+```text
+ACTION REQUIRED (Slack Admin): Configure Slack Enterprise authorization.
+Run `make slack-checklist` to view the Federated + MCP Actions setup, OAuth redirect URL, and target entities.
+Set slack_config.instance_uri (and optional team_id) in terraform.tfvars; optionally create a BYO Slack App in https://api.slack.com/apps and set TF_VAR_slack_auth.
+```
+
 ### `permissions`
 ```text
 ACTION REQUIRED (IAM & Workspace Admin): The executing principal lacks required permissions.
@@ -107,7 +115,8 @@ Run `gcloud auth application-default login` and `gcloud auth login` with a custo
 | `connectors: PERMISSION_DENIED` | DWD token propagation latency | Wait 5 minutes and retry `make apply-connectors` |
 | `jira: 401/403/UNAUTHORIZED` | Invalid Jira credentials or scopes | Post `jira` template; verify `TF_VAR_jira_auth` |
 | `confluence: 401/403/UNAUTHORIZED` | Invalid Confluence credentials or scopes | Post `confluence` template; verify `TF_VAR_confluence_auth` / `TF_VAR_jira_auth` |
-| `DataStore ... is being deleted` | Async GCP deletion after collection removal (up to 2h) | Use a distinct `collection_id` in `jira_config` |
+| `slack: 401/403/invalid_auth` | Invalid Slack OAuth credentials or scopes | Post `slack` template; verify `slack_config` & `TF_VAR_slack_auth` |
+| `DataStore ... is being deleted` | Async GCP deletion after collection removal (up to 2h) | Use a distinct `collection_id` in connector config |
 | `DeleteCollection: 500 / spanner: value not found` | Deleting a `FEDERATED` connector while `state == "CREATING"` | Wait ~5m for BAP connection to reach `ACTIVE` or `FAILED` before deleting |
 | `assistant: 409 ALREADY_EXISTS` | Engine auto-creates `default_assistant` | Import into state before `make apply-connectors` |
 | `missing license_config_id` | Console only displays Subscription ID | Run `python3 scripts/allocate_licenses.py --discover` |

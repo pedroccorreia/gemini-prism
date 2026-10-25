@@ -1,4 +1,4 @@
-.PHONY: status configure check-inputs enable-connectors plan-foundation apply-foundation dwd-checklist jira-checklist confluence-checklist people-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify test help
+.PHONY: status configure check-inputs enable-connectors plan-foundation apply-foundation dwd-checklist jira-checklist confluence-checklist slack-checklist people-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify test help
 
 WAIT ?= 15m
 
@@ -6,7 +6,7 @@ help:
 	@echo ""
 	@echo "  ═══╗  ╱╲"
 	@echo "  ═══╬─╱  ╲──✦   P R I S M   │ Gemini Enterprise Provisioning Engine"
-	@echo "  ═══╝╱____╲     v1.0        │ Workspace · Jira · Confluence · Identity · Licensing"
+	@echo "  ═══╝╱____╲     v1.0        │ Workspace · Jira · Confluence · Slack · Identity · Licensing"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  status               - Check deployment status & live phase"
@@ -18,6 +18,7 @@ help:
 	@echo "  dwd-checklist        - Print Google Workspace Domain-Wide Delegation authorization checklist"
 	@echo "  jira-checklist       - Print Atlassian Jira connector onboarding checklist"
 	@echo "  confluence-checklist - Print Atlassian Confluence connector onboarding checklist"
+	@echo "  slack-checklist      - Print Slack Enterprise connector onboarding checklist"
 	@echo "  people-checklist     - Print Google People Directory connector onboarding checklist"
 	@echo "  plan-connectors      - Generate Stage 3 Connectors & Engines plan with plan guard"
 	@echo "  apply-connectors     - Apply Stage 3 Connectors & Engines plan"
@@ -41,7 +42,7 @@ enable-connectors:
 
 plan-foundation:
 	@mkdir -p .plans
-	terraform plan -input=false -var="enable_connectors=false" -var="enable_jira_connector=false" -var="enable_confluence_connector=false" -var="enable_people_directory_connector=false" -out=.plans/foundation.tfplan
+	terraform plan -input=false -var="enable_connectors=false" -var="enable_jira_connector=false" -var="enable_confluence_connector=false" -var="enable_slack_connector=false" -var="enable_people_directory_connector=false" -out=.plans/foundation.tfplan
 	python3 scripts/plan_guard.py .plans/foundation.tfplan
 
 apply-foundation:
@@ -56,6 +57,9 @@ jira-checklist:
 
 confluence-checklist:
 	@python3 scripts/status.py --confluence-checklist
+
+slack-checklist:
+	@python3 scripts/status.py --slack-checklist
 
 people-checklist:
 	@python3 scripts/status.py --people-directory-checklist

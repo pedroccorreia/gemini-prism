@@ -1,6 +1,6 @@
 # Prism — Gemini Enterprise Provisioning Runbook
 
-This runbook defines the authoritative, staged procedure for **Prism**: provisioning Gemini Enterprise (Vertex AI Search) with Google Workspace, Atlassian Jira, and Atlassian Confluence connectors across customer environments.
+This runbook defines the authoritative, staged procedure for **Prism**: provisioning Gemini Enterprise (Vertex AI Search) with Google Workspace, Atlassian Jira, Atlassian Confluence, Slack Enterprise, and Google People Directory connectors across customer environments.
 
 It serves both **human operators** and **autonomous AI agents** ([AGENTS.md](AGENTS.md)). Every stage contains machine-checkable preconditions, execution targets via `make`, success criteria, failure handling, and checklist items.
 
@@ -133,12 +133,12 @@ stateDiagram-v2
 
 ---
 
-## Stage 2 — Workspace & Atlassian Jira Authorization Gate
+## Stage 2 — Workspace, Atlassian Jira, Confluence & Slack Authorization Gate
 
-**Owner:** Human (Workspace Super Admin & Atlassian Admin Gate)
+**Owner:** Human (Workspace Super Admin, Atlassian Admin & Slack Admin Gate)
 
 **Preconditions (machine-checkable):**
-- `make status` returns exit code 2 (`phase: 2, phase_name: "dwd_authorization"` or `"jira_authorization"`).
+- `make status` returns exit code 2 (`phase: 2`, `phase_name: "dwd_authorization"`, `"jira_authorization"`, `"confluence_authorization"`, or `"slack_authorization"`).
 - Foundation projects and Discovery Engine service agents exist.
 
 **Do:**
@@ -153,11 +153,11 @@ stateDiagram-v2
    - **Client ID**: The 21-digit numeric `client_id` (`uniqueId`) or `service_agent_email` from `make dwd-checklist`.
    - **OAuth Scopes**: Copy and paste the comma-separated scope string from `dwd-checklist`:
      ```
-     https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly,https://www.googleapis.com/auth/admin.directory.orgunit.readonly,https://www.googleapis.com/auth/admin.directory.customschema.readonly,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly,https://www.googleapis.com/auth/chat.memberships.readonly
+     https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly,https://www.googleapis.com/auth/admin.directory.orgunit.readonly,https://www.googleapis.com/auth/admin.directory.customschema.readonly,https://www.googleapis.com/auth/directory.readonly,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly,https://www.googleapis.com/auth/chat.memberships.readonly
      ```
    - Click **Authorize**.
 4. In Workspace Admin Console under **Security > Access and data control > API controls > Google Cloud Core Services**, allow access for the environment GCP project IDs if prompted.
-5. If Atlassian Jira is planned (`"jira"` in `planned_connectors`):
+5. If Atlassian Jira is planned (`"jira"` in `planned_connectors` or `enable_jira_connector = true`):
    - Run `make jira-checklist` to view the Jira instance URI, resolved `cloudId` (`instance_id`), required OAuth scopes, and redirect URLs.
    - Ensure `connector_modes = ["FEDERATED"]` is configured in `jira_config`.
    - For Jira Cloud (`*.atlassian.net`, OAuth 2.0 3LO, v3): Register an OAuth 2.0 (3LO) app in [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) with callback URL `https://vertexaisearch.cloud.google.com/console/oauth/jira_oauth.html` (and `https://vertexaisearch.cloud.google.com/oauth-redirect` if Actions are enabled), configure the scopes from `jira-checklist`, and supply `client_id`, `client_secret`, and `instance_id` via `export TF_VAR_jira_auth='{"client_id":"...","client_secret":"...","instance_id":"..."}'` or `terraform.tfvars`.
@@ -167,28 +167,32 @@ stateDiagram-v2
    - Ensure `connector_modes = ["FEDERATED"]` is configured in `confluence_config`.
    - For Confluence Cloud (`*.atlassian.net`, OAuth 2.0 3LO, v4): Register/configure an OAuth 2.0 (3LO) app in [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) with callback URL `https://vertexaisearch.cloud.google.com/console/oauth/confluence_oauth.html` (and `https://vertexaisearch.cloud.google.com/oauth-redirect` if Actions are enabled), configure the scopes from `confluence-checklist`, and supply `client_id`, `client_secret`, and `instance_id` via `export TF_VAR_confluence_auth='{"client_id":"...","client_secret":"...","instance_id":"..."}'` or `terraform.tfvars`. (If Confluence shares the same Atlassian tenant and 3LO app as Jira, `TF_VAR_confluence_auth` and instance URI automatically fall back to `jira_auth` and `jira_config`.)
    - Update `confluence_config.instance_uri` and `confluence_config.instance_id` in `terraform.tfvars` (or omit to inherit from Jira).
-7. If Google People & Org Directory is planned (`"people_directory"` in `planned_connectors` or `enable_people_directory_connector = true`):
+7. If Slack Enterprise is planned (`"slack"` in `planned_connectors` or `enable_slack_connector = true`):
+   - Run `make slack-checklist` to view the Slack workspace URI, `team_id`, OAuth callback URL (`https://vertexaisearch.cloud.google.com/oauth-redirect`), target federated entities (`conversation`, `message`, `file`), and scopes.
+   - **Option A — Default Google-Managed OAuth (`slack_auth_type = "OAUTH"`, `v3` Federated + Actions):** No `TF_VAR_slack_auth` secret is required; set `slack_config.instance_uri` (e.g. `https://your-workspace.slack.com`) and optional `slack_config.team_id` (`T...` or `E...`) in `terraform.tfvars`. End users authorize Slack directly via **Sources → Connect** in the Gemini Enterprise Web App.
+   - **Option B — Custom BYO Slack OAuth App (`slack_auth_type = "OAUTH"`):** Create a Slack App at [api.slack.com/apps](https://api.slack.com/apps) with redirect URL `https://vertexaisearch.cloud.google.com/oauth-redirect`, configure scopes from `make slack-checklist`, and export `export TF_VAR_slack_auth='{"client_id":"...","client_secret":"...","team_id":"T01234567"}'`.
+8. If Google People & Org Directory is planned (`"people_directory"` in `planned_connectors` or `enable_people_directory_connector = true`):
    - Run `make people-checklist` to view directory configuration, target entities, and sync parameters.
    - People Directory reuses the DWD authorization above; ensure all Directory scopes (`user.readonly`, `orgunit.readonly`, `customschema.readonly`, `directory.readonly`) are authorized.
-8. Enable planned connectors via Stage 2 Enablement Helper:
+9. Enable planned connectors via Stage 2 Enablement Helper:
    ```bash
    make enable-connectors
    ```
-   *(Or manually update `terraform.tfvars` with `enable_connectors = true`, `enable_jira_connector = true`, `enable_confluence_connector = true`, and/or `enable_people_directory_connector = true`.)*
-   ```
-   The enablement helper verifies that all prerequisites and credentials for `planned_connectors` are configured and valid (Workspace domain and customer ID, Jira instance URI and OAuth/token credentials, People Directory scopes), then automatically flips the corresponding `enable_* = true` flags in `terraform.tfvars` (`enable_connectors`, `enable_jira_connector`, and/or `enable_people_directory_connector`). Alternatively, set flags manually in `terraform.tfvars`.
+   The enablement helper verifies that all prerequisites and credentials for `planned_connectors` are configured and valid (Workspace domain and customer ID, Jira/Confluence instance URI and OAuth credentials, Slack workspace URI, People Directory scopes), then automatically flips the corresponding `enable_* = true` flags in `terraform.tfvars` (`enable_connectors`, `enable_jira_connector`, `enable_confluence_connector`, `enable_slack_connector`, and/or `enable_people_directory_connector`). Alternatively, set flags manually in `terraform.tfvars`.
 
 **Done when:**
 - Planned connectors are validated and matching `enable_* = true` flags are enabled in `terraform.tfvars` via `make enable-connectors` (or manually set).
 - If `enable_jira_connector = true`, `jira_config.instance_uri` is non-empty and non-placeholder.
 - If `enable_confluence_connector = true`, `confluence_config.instance_uri` (or inherited `jira_config.instance_uri`) is non-empty and non-placeholder.
+- If `enable_slack_connector = true`, `slack_config.instance_uri` (and/or `slack_config.team_id`) is non-empty and non-placeholder.
 - `make status` returns exit code 0 (`phase: 3, phase_name: "connectors_and_engines_apply"`).
 
 **If it fails:**
 - DWD authorization rejected by Admin Console: Verify executing human is a Workspace Super Admin and use the 21-digit numeric `client_id` from `make dwd-checklist`.
-- Incomplete scopes: Ensure all 11 required scopes are pasted without trailing spaces.
+- Incomplete scopes: Ensure all 12 required scopes are pasted without trailing spaces.
 - Jira OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make jira-checklist`, and credentials in `TF_VAR_jira_auth` have access to the target Jira Cloud instance.
 - Confluence OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make confluence-checklist`, and credentials in `TF_VAR_confluence_auth` (or fallback `TF_VAR_jira_auth`) have access to the target Confluence Cloud instance.
+- Slack OAuth rejection: Verify `slack_config.instance_uri` and `slack_config.team_id` match the target workspace, and (if using BYO OAuth) verify `TF_VAR_slack_auth` `client_id` / `client_secret` and redirect URL match `make slack-checklist`.
 - Enablement helper reports missing prerequisites: Run `make check-inputs` to identify unresolved variables and consult the Help Center reference table below.
 
 ### Connector Help Center Reference Table
@@ -198,6 +202,7 @@ stateDiagram-v2
 | **Google Workspace** (Gmail, Calendar, Drive, Chat) | `FEDERATED` | [Workspace Connectors Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/introduction-to-connectors-and-data-stores)<br/>[Gmail Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/gmail)<br/>[Drive Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/drive) | [Workspace DWD Console](https://admin.google.com/ac/owl/domainwidedelegation)<br/>[Core Services](https://admin.google.com/ac/owl) | Google Workspace Super Admin<br/>21-digit numeric Client ID (`uniqueId`) |
 | **Atlassian Jira Cloud** | `FEDERATED` | [Jira Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/)<br/>[Atlassian Admin Console](https://admin.atlassian.com) | Atlassian Org Admin / Site Admin<br/>OAuth 2.0 (3LO) App / Token (`TF_VAR_jira_auth`) |
 | **Atlassian Confluence** | `FEDERATED` | [Confluence Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) | Atlassian Org Admin / Site Admin<br/>OAuth 2.0 (3LO) or Shared Jira credentials |
+| **Slack Enterprise** | `FEDERATED` + `ACTIONS` | [Slack Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/slack) | [Slack API Apps Console](https://api.slack.com/apps)<br/>[Slack Workspace Admin](https://app.slack.com/manage) | Slack Workspace Owner / Org Admin<br/>Google-Managed OAuth (0 secrets) or BYO OAuth App (`TF_VAR_slack_auth`) |
 | **Google People Directory** | `DATA_INGESTION` (Incremental) | [Google Directory API Guide](https://developers.google.com/admin-sdk/directory/v1/guides)<br/>[Cloud Identity Docs](https://cloud.google.com/identity/docs/) | [Workspace DWD Console](https://admin.google.com/ac/owl/domainwidedelegation) | Google Workspace Super Admin<br/>Service Agent DWD (0 additional credentials) |
 
 **Checklist:**
@@ -206,18 +211,19 @@ stateDiagram-v2
 - [ ] Allowed GCP projects under Google Cloud Core Services
 - [ ] Configured Jira OAuth app / API token via `make jira-checklist` (if Jira planned)
 - [ ] Configured Confluence OAuth app / credentials via `make confluence-checklist` (if Confluence planned)
+- [ ] Configured Slack workspace URI / `team_id` (and optional BYO OAuth app) via `make slack-checklist` (if Slack planned)
 - [ ] Inspected People Directory settings via `make people-checklist` (if People Directory planned)
 - [ ] Validated prerequisites and enabled planned connectors via `make enable-connectors` (or flipped `enable_* = true` in `terraform.tfvars`)
 
 ---
 
-## Stage 3 — Workspace, Jira & Confluence Connectors, Search Engines & Assistants
+## Stage 3 — Workspace, Jira, Confluence & Slack Connectors, Search Engines & Assistants
 
 **Owner:** Agent (after Stage 2 Human Gate)
 
 **Preconditions (machine-checkable):**
 - `make status` returns exit code 0 (`phase: 3, phase_name: "connectors_and_engines_apply"`).
-- `enable_connectors` is `true` in `terraform.tfvars` (or `enable_jira_connector` / `enable_confluence_connector` with configured URI).
+- `enable_connectors` is `true` in `terraform.tfvars` (or `enable_jira_connector`, `enable_confluence_connector`, `enable_slack_connector`, or `enable_people_directory_connector` is `true` with valid configuration).
 
 **Do:**
 1. Generate and guard the connectors plan:
@@ -232,21 +238,22 @@ stateDiagram-v2
 **Done when:**
 - `terraform output -json search_engine_names` contains all configured environments.
 - `terraform output -json assistant_names` contains all configured environments.
-- All provisioned connectors (Workspace, Jira, and/or Confluence) exist in state.
+- All provisioned connectors (Workspace, Jira, Confluence, Slack, and/or People Directory) exist in state.
 - Re-plan produces zero diff.
 
 **If it fails:**
 - Connector creation fails with `PERMISSION_DENIED` or `unauthorized_client`: Domain-Wide Delegation OAuth tokens can take up to 5–15 minutes to propagate. Wait 5 minutes and retry `make apply-connectors`.
 - Jira or Confluence connector fails with authentication/network error: Verify instance URI is reachable, allowlist static IPs if enabled, and verify `TF_VAR_jira_auth` / `TF_VAR_confluence_auth`.
-- If permission failure persists after 15 minutes: Escalate with the **dwd**, **jira**, or **confluence** template to re-verify Client ID and scope entries.
-- `google_discovery_engine_assistant.default` fails with `409 Already Exists`: Provisioning a search engine with `SEARCH_ADD_ON_LLM` automatically creates `default_assistant`. Import it into state (`terraform import 'google_discovery_engine_assistant.default["<env>"]' projects/<PROJECT_ID>/locations/global/collections/default_collection/engines/<ENGINE_ID>/assistants/default_assistant`) and re-run `make plan-connectors && make apply-connectors`.
-- If permission failure persists after 15 minutes: Escalate with the **dwd** template to re-verify Client ID and scope entries.
+- Slack connector fails with `INITIALIZING` state update error or `400`: Wait for initial BAP connection provisioning to reach `ACTIVE`, and ensure `entities` uses `["conversation", "message", "file"]`.
+- If permission failure persists after 15 minutes: Escalate with the **dwd**, **jira**, **confluence**, or **slack** template to re-verify Client ID and scope entries.
+- `google_discovery_engine_assistant.default` fails with `400` / `409` (`Only one assistant per engine is allowed` / `Already Exists`): Provisioning a search engine with `SEARCH_ADD_ON_LLM` automatically creates `default_assistant`. Import it into state (`terraform import 'google_discovery_engine_assistant.default["<env>"]' projects/<PROJECT_ID>/locations/global/collections/default_collection/engines/<ENGINE_ID>/assistants/default_assistant`) and re-run `make plan-connectors && make apply-connectors`.
 
 **Checklist:**
 - [ ] `make plan-connectors` generated `.plans/connectors.tfplan` with 0 deletes/replaces
 - [ ] Workspace data connectors provisioned (`google_mail`, `google_calendar`, `google_drive`, `google_chat`)
 - [ ] Atlassian Jira connector provisioned with multi-entity data stores (if enabled)
 - [ ] Atlassian Confluence connector provisioned with multi-entity federated data stores (if enabled)
+- [ ] Slack Enterprise federated connector provisioned with `conversation`, `message`, and `file` data stores (if enabled)
 - [ ] Unified Search Engine provisioned for each environment with flattened connector data stores
 - [ ] Governed Gemini Enterprise Assistant provisioned with web grounding
 - [ ] Engine-scoped IAM permissions granted to User Cloud Identity Groups
@@ -317,7 +324,8 @@ stateDiagram-v2
    - Add pilot users to the provisioned Cloud Identity User Group (`<customer_id>-<env>-users@<domain>`).
    - Allow **1–3 minutes** for Cloud Identity group membership and User Store license auto-assignment to propagate.
    - Open the Vertex AI Search application console in an Incognito browser window.
-   - Verify search queries across Gmail, Calendar, Drive, and Chat.
+   - If Slack Enterprise (or another 3rd-party federated connector) is enabled, open **Sources** in the Web App prompt bar and click **Connect** once to authorize your user account, then start a **New chat**.
+   - Verify search queries across Gmail, Calendar, Drive, Chat, Jira, and Slack.
    - Verify Gemini Enterprise Assistant answers and web grounding.
 
 **Done when:**

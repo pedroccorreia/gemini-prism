@@ -14,7 +14,7 @@ Prism unifies disparate enterprise knowledge systems into **Google Gemini Enterp
 | **Current** | **Atlassian Jira** | Jira Cloud / Data Center | Projects, Issues, Comments, Attachments, Worklogs | OAuth 2.0 (3LO) / API Token | `v1.1.0` | 🟢 **GA (Shipped)** |
 | **Current** | **People Directory** | Google Cloud Identity / Workspace | User Profiles, Org Chart, Manager Hierarchy, Offices | Discovery Engine DWD SA | `v1.2.0` | 🟢 **GA (Shipped)** |
 | **Current** | **Atlassian Confluence** | Confluence Cloud / DC | Spaces, Pages, Blogposts, Attachments, Comments (Federated Cloud v4 / DC v1) | OAuth 2.0 (3LO) / DC Basic Auth / Jira Fallback | `v1.3.0` | 🟢 **GA (Shipped)** |
-| **P2 (Med-High)** | **Slack Enterprise** | Slack Enterprise Grid | Channels, Messages, Threads, Canvases, Files | Bot User OAuth (`xoxb-`) | `v1.4.0` | 📋 **Accepted / Backlog** |
+| **Current** | **Slack Enterprise** | Slack Enterprise Grid / Workspace | Conversations, Messages, Files + MCP Actions (`FEDERATED`) | Google-Managed OAuth 2.0 / BYO App (`v3`) | `v1.4.0` | 🟢 **GA (Shipped)** |
 | **P3 (Medium)** | **HubSpot CRM** | HubSpot Cloud | Contacts, Companies, Deals, Tickets, Engagements | Private App Token / OAuth | `v1.5.0` | 📋 **Accepted / Backlog** |
 
 ---
@@ -29,11 +29,13 @@ Prism unifies disparate enterprise knowledge systems into **Google Gemini Enterp
 - **Collection ID:** `confluence-federated-collection`
 - **Status:** 🟢 **Shipped (v1.3.0)** — Configurable via `enable_confluence_connector`, `confluence_auth`, and `confluence_config` with helper `make confluence-checklist`.
 
-### 2. [P2] Slack Enterprise Connector
+### 2. Slack Enterprise Connector (Shipped GA)
 - **Repository Issue:** [.github/issues/02_slack_connector.md](../.github/issues/02_slack_connector.md)
-- **Objective:** Index conversational team chat, message threads, channel canvases, and shared files.
-- **Privacy Controls:** Strict channel inclusion/exclusion filters with user-account email mapping to Google Cloud Identity.
+- **Objective:** Federate conversational team chat, message threads, channel canvases, shared files, and remote MCP actions (`https://mcp.slack.com`).
+- **Architectural Mode:** Native **`FEDERATED`** + **`ACTIONS`** mode via Discovery Engine Slack `v3` (`PUBLIC_GA`) with Google-Managed OAuth 2.0 or BYO Slack App (`ByoOAuth`).
+- **Privacy Controls:** Strict channel inclusion/exclusion filters, private-channel/DM opt-in guards, and per-user Slack OAuth identity enforcement.
 - **Collection ID:** `slack-collection`
+- **Status:** 🟢 **Shipped (v1.4.0)** — Configurable via `enable_slack_connector`, `slack_auth`, and `slack_config` with helper `make slack-checklist`.
 
 ### 3. [P3] HubSpot CRM Connector
 - **Repository Issue:** [.github/issues/03_hubspot_connector.md](../.github/issues/03_hubspot_connector.md)

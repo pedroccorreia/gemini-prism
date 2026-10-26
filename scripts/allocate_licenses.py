@@ -302,7 +302,7 @@ def emit_tfvars(allocations, location, token):
     return output_str
 
 
-def distribute_license_config(billing_account, license_config_id, project_number, seat_count, token, central_project, location="global", dry_run=False):
+def distribute_license_config(billing_account, license_config_id, project_number, seat_count, token, central_project, location="global", dry_run=False, target_license_config_id=None):
     """Distribute licenseConfig seats from Billing Account level to target GCP project number with retry/backoff."""
     url = f"https://discoveryengine.googleapis.com/v1alpha/billingAccounts/{billing_account}/billingAccountLicenseConfigs/{license_config_id}:distributeLicenseConfig"
     payload = {
@@ -310,7 +310,10 @@ def distribute_license_config(billing_account, license_config_id, project_number
         "location": location,
         "licenseCount": str(seat_count)
     }
-    print(f"  • Distributing {seat_count} seat(s) to Project Number {project_number}...")
+    if target_license_config_id:
+        payload["licenseConfigId"] = str(target_license_config_id)
+    target_suffix = f" (into existing config {target_license_config_id})" if target_license_config_id else ""
+    print(f"  • Distributing {seat_count} seat(s) to Project Number {project_number}{target_suffix}...")
     if dry_run:
         print("    [DRY RUN] Skipped actual API distribution call.")
         return {}
@@ -495,19 +498,22 @@ def main():
                 try:
                     existing_cfgs = get_license_configs(p_id, location, token) if p_id else []
                     active_cfg = next((c for c in existing_cfgs if c.get("state") == "ACTIVE" and not c.get("freeTrial")), None)
-                    if active_cfg and int(active_cfg.get("licenseCount", "0")) >= int(seats):
-                        cfg_short = active_cfg.get("name", "").split("/")[-1]
-                        print(f"  • Already distributed ({active_cfg.get('licenseCount')} seat(s) active in {cfg_short}) — skipping duplicate distribution.")
+                    current_seats = int(active_cfg.get("licenseCount", "0")) if active_cfg else 0
+                    cfg_short = active_cfg.get("name", "").split("/")[-1] if active_cfg else None
+                    if active_cfg and current_seats >= int(seats):
+                        print(f"  • Already distributed ({current_seats} seat(s) active in {cfg_short}) — skipping duplicate distribution.")
                     else:
+                        delta_seats = int(seats) - current_seats
                         distribute_license_config(
                             billing_account=billing_account,
                             license_config_id=license_config_id,
                             project_number=p_num,
-                            seat_count=seats,
+                            seat_count=delta_seats,
                             token=token,
                             central_project=project_id,
                             location=location,
-                            dry_run=args.dry_run
+                            dry_run=args.dry_run,
+                            target_license_config_id=cfg_short
                         )
                 except Exception as e:
                     print(f"\n[FATAL] Failed distributing licenses to {p_id}: {e}", file=sys.stderr)

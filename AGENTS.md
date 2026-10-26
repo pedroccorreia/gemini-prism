@@ -10,7 +10,7 @@ Execute `make status --json`. Act on `next_action`. Reference the matching stage
   1. Run `make status` before and after every action.
   2. Use `make plan-<stage>` and `make apply-<stage>` (always applies guarded saved plans).
   3. Use `make enable-connectors` to validate prerequisites and activate connectors in Stage 2.
-  4. Run `make licenses-dryrun` before distributing licenses.
+  4. Run `make plan-connectors && make apply-connectors` after changing `seat_allocations` in `terraform.tfvars` (to refresh `config/license_allocations.json`), then run `make licenses-dryrun` before `make licenses`.
   5. Stop at human gates (`status.py` exit code 2) and post the designated hand-off template.
   6. Provision all data connectors (Workspace and third-party) exclusively in `FEDERATED` mode (`connector_modes = ["FEDERATED"]`).
 - **MUST NOT**:
@@ -20,6 +20,7 @@ Execute `make status --json`. Act on `next_action`. Reference the matching stage
   4. Use `--skip-preflight` or switch GCP identities/credentials.
   5. Commit `terraform.tfvars`, `terraform.tfstate`, or `config/license_allocations.json`.
   6. Provision `DATA_INGESTION` connectors or use `jira_server` / `confluence_server` / `BASIC_AUTH` against Atlassian Cloud (`*.atlassian.net`).
+  7. Use `admin.directory.customschema.readonly` in DWD scopes; the valid Admin SDK scope for custom user schemas is `https://www.googleapis.com/auth/admin.directory.userschema.readonly`.
 
 ## Cross-Harness Combo-Box Protocol (Stage 0)
 When entering Stage 0 (`make status --json` reports `phase: 0`):
@@ -111,6 +112,7 @@ Run `gcloud auth application-default login` and `gcloud auth login` with a custo
 | Error Signature | Cause | Remediation |
 | :--- | :--- | :--- |
 | `plan_guard: DESTRUCTIVE CHANGES` | Resources would be deleted/replaced | Inspect diff; verify customer IDs; never bypass |
+| `DWD: Invalid scope customschema` | Wrong Admin SDK schema scope name | Use `https://www.googleapis.com/auth/admin.directory.userschema.readonly` |
 | `google_cloud_identity_group: 403` | Missing Groups Admin permission | Post `permissions` template (requires Workspace Groups Admin) |
 | `connectors: PERMISSION_DENIED` | DWD token propagation latency | Wait 5 minutes and retry `make apply-connectors` |
 | `jira: 401/403/UNAUTHORIZED` | Invalid Jira credentials or scopes | Post `jira` template; verify `TF_VAR_jira_auth` |
@@ -120,7 +122,8 @@ Run `gcloud auth application-default login` and `gcloud auth login` with a custo
 | `DeleteCollection: 500 / spanner: value not found` | Deleting a `FEDERATED` connector while `state == "CREATING"` | Wait ~5m for BAP connection to reach `ACTIVE` or `FAILED` before deleting |
 | `assistant: 409 ALREADY_EXISTS` | Engine auto-creates `default_assistant` | Import into state before `make apply-connectors` |
 | `missing license_config_id` | Console only displays Subscription ID | Run `python3 scripts/allocate_licenses.py --discover` |
-| `distributeLicenseConfig: Insufficient` | Billing pool out of seats | Increase seats on Billing Account |
+| `distributeLicenseConfig: Insufficient` | Billing pool out of seats or auto-routed to 1st project | Increase order `quantity` (takes ~5m to activate) or partial-retract (`fullRetract: false`) auto-routed seats |
+| `Procurement Order: 400 on modify` | Order in `ORDER_STATE_PENDING_CANCELLATION` or wrong param | Revert cancellation first, then update `quantity` with `offer` URI |
 
 ## Repository Map
 - `assets/`: Vector SVGs (`prism-banner.svg`, `prism-logo.svg`, `prism-icon.svg`) and high-res brand artwork.

@@ -1747,7 +1747,7 @@ class TestTerraformDefaultsContract(unittest.TestCase):
         self.assertIn("confluence-federated-collection", content)
 
     def test_main_tf_dwd_scopes_include_directory_scopes(self):
-        """main.tf dwd_scopes must include orgunit and customschema scopes for People Directory."""
+        """main.tf dwd_scopes must include orgunit and userschema scopes for People Directory."""
         main_tf_path = os.path.join(REPO_ROOT, "main.tf")
         with open(main_tf_path, "r", encoding="utf-8") as f:
             content = f.read()
@@ -1757,10 +1757,24 @@ class TestTerraformDefaultsContract(unittest.TestCase):
             "https://www.googleapis.com/auth/admin.directory.group.readonly",
             "https://www.googleapis.com/auth/admin.directory.group.member.readonly",
             "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
-            "https://www.googleapis.com/auth/admin.directory.customschema.readonly"
+            "https://www.googleapis.com/auth/admin.directory.userschema.readonly"
         ]
         for sc in required_scopes:
             self.assertIn(sc, content, f"main.tf dwd_scopes missing required Directory scope: {sc}")
+
+    def test_main_tf_provisions_admin_and_user_groups(self):
+        """main.tf and outputs.tf must provision both Admin and User Cloud Identity Groups with IAM bindings."""
+        with open(os.path.join(REPO_ROOT, "main.tf"), "r", encoding="utf-8") as f:
+            main_content = f.read()
+        with open(os.path.join(REPO_ROOT, "outputs.tf"), "r", encoding="utf-8") as f:
+            outputs_content = f.read()
+
+        self.assertIn('resource "google_cloud_identity_group" "users"', main_content)
+        self.assertIn('resource "google_cloud_identity_group" "admins"', main_content)
+        self.assertIn('${var.customer_id}-${each.key}-admins@${var.company_domain}', main_content)
+        self.assertIn('resource "google_project_iam_member" "group_admins"', main_content)
+        self.assertIn('output "admin_group_emails"', outputs_content)
+        self.assertIn('output "user_group_emails"', outputs_content)
 
 
 class TestVerifyWaitParsing(unittest.TestCase):

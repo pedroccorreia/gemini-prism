@@ -237,7 +237,7 @@ The repository supports provisioning a dedicated **Google Cloud Identity / Works
 | Requirement Dimension | Specification & Guidance |
 | :--- | :--- |
 | **Authentication Architecture** | Reuses the existing **Discovery Engine Service Agent Domain-Wide Delegation (DWD)**. **Zero new credentials** or API tokens required. |
-| **Required Directory Scopes** | Automatically emitted in `make dwd-checklist` and `make people-checklist`:<br/>• `https://www.googleapis.com/auth/admin.directory.user.readonly`<br/>• `https://www.googleapis.com/auth/admin.directory.orgunit.readonly`<br/>• `https://www.googleapis.com/auth/admin.directory.customschema.readonly`<br/>• `https://www.googleapis.com/auth/directory.readonly` |
+| **Required Directory Scopes** | Automatically emitted in `make dwd-checklist` and `make people-checklist`:<br/>• `https://www.googleapis.com/auth/admin.directory.user.readonly`<br/>• `https://www.googleapis.com/auth/admin.directory.orgunit.readonly`<br/>• `https://www.googleapis.com/auth/admin.directory.userschema.readonly`<br/>• `https://www.googleapis.com/auth/directory.readonly` |
 | **Connector Mode & Sync** | `connector_modes = ["DATA_INGESTION"]`, default sync mode `PERIODIC` with daily synchronization (`refresh_interval = "86400s"`). |
 | **Target Entities** | `users` (with organizational unit and custom schema attribute filtering via `people_directory_config`). |
 | **Scoping & Filters** | Filter ingestion by Organizational Units (`org_units_include`) or custom employee schemas (`custom_schemas_include`). Optional flag `include_suspended_users = false`. |
@@ -524,7 +524,7 @@ make test
    make plan-foundation
    make apply-foundation
    ```
-2. Verify that `project_ids`, `project_numbers`, `user_group_emails`, and `service_agent_emails` are created and `config/license_allocations.json` is written:
+2. Verify that `project_ids`, `project_numbers`, `admin_group_emails`, `user_group_emails`, and `service_agent_emails` are created and `config/license_allocations.json` is written:
    ```bash
    make status
    ```

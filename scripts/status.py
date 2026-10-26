@@ -912,7 +912,7 @@ def print_people_directory_checklist():
                 "required_scopes": [
                     "https://www.googleapis.com/auth/admin.directory.user.readonly",
                     "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
-                    "https://www.googleapis.com/auth/admin.directory.customschema.readonly"
+                    "https://www.googleapis.com/auth/admin.directory.userschema.readonly"
                 ],
                 "action_instructions": "Ensure Domain-Wide Delegation in Google Workspace Admin Console includes the required Directory API scopes for the service agent email."
             }

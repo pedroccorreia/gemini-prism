@@ -484,7 +484,7 @@ locals {
     "https://www.googleapis.com/auth/admin.directory.group.readonly",
     "https://www.googleapis.com/auth/admin.directory.group.member.readonly",
     "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
-    "https://www.googleapis.com/auth/admin.directory.customschema.readonly",
+    "https://www.googleapis.com/auth/admin.directory.userschema.readonly",
     "https://www.googleapis.com/auth/directory.readonly",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/calendar.readonly",
@@ -567,7 +567,7 @@ resource "google_discovery_engine_acl_config" "idp" {
   ]
 }
 
-# 3. Provision Cloud Identity User Groups
+# 3. Provision Cloud Identity User & Admin Groups
 resource "google_cloud_identity_group" "users" {
   for_each     = local.environments
   display_name = "${var.customer_name} (${each.value.display_name}) Users"
@@ -582,6 +582,35 @@ resource "google_cloud_identity_group" "users" {
   }
 
   depends_on = [google_project_service.services]
+}
+
+resource "google_cloud_identity_group" "admins" {
+  for_each     = local.environments
+  display_name = "${var.customer_name} (${each.value.display_name}) Admins"
+  parent       = "customers/${var.workspace_customer_id}"
+
+  group_key {
+    id = "${var.customer_id}-${each.key}-admins@${var.company_domain}"
+  }
+
+  labels = {
+    "cloudidentity.googleapis.com/groups.discussion_forum" = ""
+  }
+
+  depends_on = [google_project_service.services]
+}
+
+# Grant Discovery Engine Admin Access to Customer Environment Admin Groups
+resource "google_project_iam_member" "group_admins" {
+  for_each = local.environments
+  project  = google_project.projects[each.key].project_id
+  role     = "roles/discoveryengine.admin"
+  member   = "group:${google_cloud_identity_group.admins[each.key].group_key[0].id}"
+
+  depends_on = [
+    google_project_service.services,
+    google_cloud_identity_group.admins
+  ]
 }
 
 # 4. Provision Discovery Engine User Store with Auto-Registration

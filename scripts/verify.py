@@ -133,7 +133,7 @@ def check_data_connectors(project_id, location, token):
         results.append((f"Connector ({data_source})", status, ", ".join(details_parts)))
 
     if not found_connectors:
-        results.append(("Data Connectors", "WARN", "No active data connectors found (enable_connectors, enable_jira_connector, enable_confluence_connector, enable_slack_connector, or enable_people_directory_connector may be false)"))
+        results.append(("Data Connectors", "WARN", "No active data connectors found (enable_connectors, enable_jira_connector, enable_confluence_connector, enable_slack_connector, enable_people_directory_connector, or enable_hubspot_connector may be false)"))
 
     return results
 

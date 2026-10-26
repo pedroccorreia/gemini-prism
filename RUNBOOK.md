@@ -133,12 +133,12 @@ stateDiagram-v2
 
 ---
 
-## Stage 2 — Workspace, Atlassian Jira, Confluence & Slack Authorization Gate
+## Stage 2 — Workspace, Atlassian Jira, Confluence, Slack & HubSpot Authorization Gate
 
-**Owner:** Human (Workspace Super Admin, Atlassian Admin & Slack Admin Gate)
+**Owner:** Human (Workspace Super Admin, Atlassian Admin, Slack Admin & HubSpot Admin Gate)
 
 **Preconditions (machine-checkable):**
-- `make status` returns exit code 2 (`phase: 2`, `phase_name: "dwd_authorization"`, `"jira_authorization"`, `"confluence_authorization"`, or `"slack_authorization"`).
+- `make status` returns exit code 2 (`phase: 2`, `phase_name: "dwd_authorization"`, `"jira_authorization"`, `"confluence_authorization"`, `"slack_authorization"`, or `"hubspot_authorization"`).
 - Foundation projects and Discovery Engine service agents exist.
 
 **Do:**
@@ -171,20 +171,25 @@ stateDiagram-v2
    - Run `make slack-checklist` to view the Slack workspace URI, `team_id`, OAuth callback URL (`https://vertexaisearch.cloud.google.com/oauth-redirect`), target federated entities (`conversation`, `message`, `file`), and scopes.
    - **Option A — Default Google-Managed OAuth (`slack_auth_type = "OAUTH"`, `v3` Federated + Actions):** No `TF_VAR_slack_auth` secret is required; set `slack_config.instance_uri` (e.g. `https://your-workspace.slack.com`) and optional `slack_config.team_id` (`T...` or `E...`) in `terraform.tfvars`. End users authorize Slack directly via **Sources → Connect** in the Gemini Enterprise Web App.
    - **Option B — Custom BYO Slack OAuth App (`slack_auth_type = "OAUTH"`):** Create a Slack App at [api.slack.com/apps](https://api.slack.com/apps) with redirect URL `https://vertexaisearch.cloud.google.com/oauth-redirect`, configure scopes from `make slack-checklist`, and export `export TF_VAR_slack_auth='{"client_id":"...","client_secret":"...","team_id":"T01234567"}'`.
-8. If Google People & Org Directory is planned (`"people_directory"` in `planned_connectors` or `enable_people_directory_connector = true`):
+8. If HubSpot CRM is planned (`"hubspot"` in `planned_connectors` or `enable_hubspot_connector = true`):
+   - Run `make hubspot-checklist` to view the HubSpot CRM API endpoint (`https://api.hubapi.com`), target federated entities (`contacts`, `companies`, `deals`, `tickets`), and required Private App / Service Key scopes.
+   - In [HubSpot > Development > Keys > Service Keys](https://app.hubspot.com), create a Service Key with CRM read scopes (`crm.objects.contacts.read`, `crm.objects.companies.read`, `crm.objects.deals.read`, `crm.objects.owners.read`, `tickets`) and copy the generated service key (`pat-ap1-...`).
+   - Supply the service key via environment variable: `export TF_VAR_hubspot_auth='{"service_key":"pat-ap1-..."}`.
+9. If Google People & Org Directory is planned (`"people_directory"` in `planned_connectors` or `enable_people_directory_connector = true`):
    - Run `make people-checklist` to view directory configuration, target entities, and sync parameters.
    - People Directory reuses the DWD authorization above; ensure all Directory scopes (`user.readonly`, `orgunit.readonly`, `customschema.readonly`, `directory.readonly`) are authorized.
-9. Enable planned connectors via Stage 2 Enablement Helper:
+10. Enable planned connectors via Stage 2 Enablement Helper:
    ```bash
    make enable-connectors
    ```
-   The enablement helper verifies that all prerequisites and credentials for `planned_connectors` are configured and valid (Workspace domain and customer ID, Jira/Confluence instance URI and OAuth credentials, Slack workspace URI, People Directory scopes), then automatically flips the corresponding `enable_* = true` flags in `terraform.tfvars` (`enable_connectors`, `enable_jira_connector`, `enable_confluence_connector`, `enable_slack_connector`, and/or `enable_people_directory_connector`). Alternatively, set flags manually in `terraform.tfvars`.
+   The enablement helper verifies that all prerequisites and credentials for `planned_connectors` are configured and valid (Workspace domain and customer ID, Jira/Confluence instance URI and OAuth credentials, Slack workspace URI, HubSpot service key, People Directory scopes), then automatically flips the corresponding `enable_* = true` flags in `terraform.tfvars` (`enable_connectors`, `enable_jira_connector`, `enable_confluence_connector`, `enable_slack_connector`, `enable_hubspot_connector`, and/or `enable_people_directory_connector`). Alternatively, set flags manually in `terraform.tfvars`.
 
 **Done when:**
 - Planned connectors are validated and matching `enable_* = true` flags are enabled in `terraform.tfvars` via `make enable-connectors` (or manually set).
 - If `enable_jira_connector = true`, `jira_config.instance_uri` is non-empty and non-placeholder.
 - If `enable_confluence_connector = true`, `confluence_config.instance_uri` (or inherited `jira_config.instance_uri`) is non-empty and non-placeholder.
 - If `enable_slack_connector = true`, `slack_config.instance_uri` (and/or `slack_config.team_id`) is non-empty and non-placeholder.
+- If `enable_hubspot_connector = true`, `TF_VAR_hubspot_auth` (or `.env.hubspot`) is configured with a valid service key (`pat-...`).
 - `make status` returns exit code 0 (`phase: 3, phase_name: "connectors_and_engines_apply"`).
 
 **If it fails:**
@@ -193,6 +198,7 @@ stateDiagram-v2
 - Jira OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make jira-checklist`, and credentials in `TF_VAR_jira_auth` have access to the target Jira Cloud instance.
 - Confluence OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make confluence-checklist`, and credentials in `TF_VAR_confluence_auth` (or fallback `TF_VAR_jira_auth`) have access to the target Confluence Cloud instance.
 - Slack OAuth rejection: Verify `slack_config.instance_uri` and `slack_config.team_id` match the target workspace, and (if using BYO OAuth) verify `TF_VAR_slack_auth` `client_id` / `client_secret` and redirect URL match `make slack-checklist`.
+- HubSpot token rejection: Verify the Service Key (`pat-ap1-...`) in `TF_VAR_hubspot_auth` has the required CRM read scopes from `make hubspot-checklist`.
 - Enablement helper reports missing prerequisites: Run `make check-inputs` to identify unresolved variables and consult the Help Center reference table below.
 
 ### Connector Help Center Reference Table
@@ -203,6 +209,7 @@ stateDiagram-v2
 | **Atlassian Jira Cloud** | `FEDERATED` | [Jira Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/)<br/>[Atlassian Admin Console](https://admin.atlassian.com) | Atlassian Org Admin / Site Admin<br/>OAuth 2.0 (3LO) App / Token (`TF_VAR_jira_auth`) |
 | **Atlassian Confluence** | `FEDERATED` | [Confluence Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) | Atlassian Org Admin / Site Admin<br/>OAuth 2.0 (3LO) or Shared Jira credentials |
 | **Slack Enterprise** | `FEDERATED` + `ACTIONS` | [Slack Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/slack) | [Slack API Apps Console](https://api.slack.com/apps)<br/>[Slack Workspace Admin](https://app.slack.com/manage) | Slack Workspace Owner / Org Admin<br/>Google-Managed OAuth (0 secrets) or BYO OAuth App (`TF_VAR_slack_auth`) |
+| **HubSpot CRM** | `FEDERATED` | [HubSpot Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot) | [HubSpot App Console](https://app.hubspot.com) | HubSpot Super Admin<br/>Service Key (`TF_VAR_hubspot_auth`) |
 | **Google People Directory** | `DATA_INGESTION` (Incremental) | [Google Directory API Guide](https://developers.google.com/admin-sdk/directory/v1/guides)<br/>[Cloud Identity Docs](https://cloud.google.com/identity/docs/) | [Workspace DWD Console](https://admin.google.com/ac/owl/domainwidedelegation) | Google Workspace Super Admin<br/>Service Agent DWD (0 additional credentials) |
 
 **Checklist:**
@@ -212,18 +219,19 @@ stateDiagram-v2
 - [ ] Configured Jira OAuth app / API token via `make jira-checklist` (if Jira planned)
 - [ ] Configured Confluence OAuth app / credentials via `make confluence-checklist` (if Confluence planned)
 - [ ] Configured Slack workspace URI / `team_id` (and optional BYO OAuth app) via `make slack-checklist` (if Slack planned)
+- [ ] Configured HubSpot Service Key (`TF_VAR_hubspot_auth`) via `make hubspot-checklist` (if HubSpot planned)
 - [ ] Inspected People Directory settings via `make people-checklist` (if People Directory planned)
 - [ ] Validated prerequisites and enabled planned connectors via `make enable-connectors` (or flipped `enable_* = true` in `terraform.tfvars`)
 
 ---
 
-## Stage 3 — Workspace, Jira, Confluence & Slack Connectors, Search Engines & Assistants
+## Stage 3 — Workspace, Jira, Confluence, Slack & HubSpot Connectors, Search Engines & Assistants
 
 **Owner:** Agent (after Stage 2 Human Gate)
 
 **Preconditions (machine-checkable):**
 - `make status` returns exit code 0 (`phase: 3, phase_name: "connectors_and_engines_apply"`).
-- `enable_connectors` is `true` in `terraform.tfvars` (or `enable_jira_connector`, `enable_confluence_connector`, `enable_slack_connector`, or `enable_people_directory_connector` is `true` with valid configuration).
+- `enable_connectors` is `true` in `terraform.tfvars` (or `enable_jira_connector`, `enable_confluence_connector`, `enable_slack_connector`, `enable_hubspot_connector`, or `enable_people_directory_connector` is `true` with valid configuration).
 
 **Do:**
 1. Generate and guard the connectors plan:
@@ -238,14 +246,14 @@ stateDiagram-v2
 **Done when:**
 - `terraform output -json search_engine_names` contains all configured environments.
 - `terraform output -json assistant_names` contains all configured environments.
-- All provisioned connectors (Workspace, Jira, Confluence, Slack, and/or People Directory) exist in state.
+- All provisioned connectors (Workspace, Jira, Confluence, Slack, HubSpot, and/or People Directory) exist in state.
 - Re-plan produces zero diff.
 
 **If it fails:**
 - Connector creation fails with `PERMISSION_DENIED` or `unauthorized_client`: Domain-Wide Delegation OAuth tokens can take up to 5–15 minutes to propagate. Wait 5 minutes and retry `make apply-connectors`.
-- Jira or Confluence connector fails with authentication/network error: Verify instance URI is reachable, allowlist static IPs if enabled, and verify `TF_VAR_jira_auth` / `TF_VAR_confluence_auth`.
+- Jira, Confluence, or HubSpot connector fails with authentication/network error: Verify instance URI is reachable, allowlist static IPs if enabled, and verify `TF_VAR_jira_auth` / `TF_VAR_confluence_auth` / `TF_VAR_hubspot_auth`.
 - Slack connector fails with `INITIALIZING` state update error or `400`: Wait for initial BAP connection provisioning to reach `ACTIVE`, and ensure `entities` uses `["conversation", "message", "file"]`.
-- If permission failure persists after 15 minutes: Escalate with the **dwd**, **jira**, **confluence**, or **slack** template to re-verify Client ID and scope entries.
+- If permission failure persists after 15 minutes: Escalate with the **dwd**, **jira**, **confluence**, **slack**, or **hubspot** template to re-verify Client ID and scope entries.
 - `google_discovery_engine_assistant.default` fails with `400` / `409` (`Only one assistant per engine is allowed` / `Already Exists`): Provisioning a search engine with `SEARCH_ADD_ON_LLM` automatically creates `default_assistant`. Import it into state (`terraform import 'google_discovery_engine_assistant.default["<env>"]' projects/<PROJECT_ID>/locations/global/collections/default_collection/engines/<ENGINE_ID>/assistants/default_assistant`) and re-run `make plan-connectors && make apply-connectors`.
 
 **Checklist:**
@@ -254,6 +262,7 @@ stateDiagram-v2
 - [ ] Atlassian Jira connector provisioned with multi-entity data stores (if enabled)
 - [ ] Atlassian Confluence connector provisioned with multi-entity federated data stores (if enabled)
 - [ ] Slack Enterprise federated connector provisioned with `conversation`, `message`, and `file` data stores (if enabled)
+- [ ] HubSpot CRM federated connector provisioned with `contacts`, `companies`, `deals`, and `tickets` data stores (if enabled)
 - [ ] Unified Search Engine provisioned for each environment with flattened connector data stores
 - [ ] Governed Gemini Enterprise Assistant provisioned with web grounding
 - [ ] Engine-scoped IAM permissions granted to User Cloud Identity Groups

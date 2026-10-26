@@ -4,7 +4,7 @@
 
 # Prism — Gemini Enterprise Customer Provisioning: Deployment Requirements & Practitioner's Guide
 
-**Document Status:** Production Reference | **Repository:** [pedroccorreia/gemini-prism](https://github.com/pedroccorreia/gemini-prism) | **Target Stack:** Google Cloud Discovery Engine (Gemini Enterprise), Google Workspace, Atlassian Jira & Confluence, Slack Enterprise, Terraform IaC (`>= 1.5.0`)
+**Document Status:** Production Reference | **Repository:** [pedroccorreia/gemini-prism](https://github.com/pedroccorreia/gemini-prism) | **Target Stack:** Google Cloud Discovery Engine (Gemini Enterprise), Google Workspace, Atlassian Jira & Confluence, Slack Enterprise, HubSpot CRM, Terraform IaC (`>= 1.5.0`)
 
 > **Executive Summary:** This document is the authoritative end-to-end engineering asset for deploying **Prism: Gemini Enterprise (Vertex AI Search)** across isolated customer environments (`non-prod`, `prod`, `dev`, `pilot`, `staging`). **Part I** specifies every technical, identity, IAM, licensing, network, and third-party tenant requirement needed to deploy successfully on the first run. **Part II** provides a complete **Practitioner's Guide** detailing how to operate every Terraform module, Python automation tool, safety guard, `Makefile` target, autonomous agent hand-off gate, and Day-2 operational workflow in the repository.
 
@@ -12,7 +12,7 @@
 
 ### 1. Target Architecture & Provisioned Resource Footprint
 
-The **Prism** Infrastructure-as-Code (IaC) stack automates the creation of dedicated Google Cloud environment projects, configures Google Workspace (`GSUITE`) location-level identity and access control, wires real-time federated Google Workspace connectors alongside multi-entity Atlassian Jira, Atlassian Confluence, Slack Enterprise (`v3` MCP/BAP), and Google People Directory connectors, provisions a unified Intranet Search Engine and Governed Enterprise Assistant, and distributes Gemini Enterprise seat licenses from a central Cloud Billing Account pool.
+The **Prism** Infrastructure-as-Code (IaC) stack automates the creation of dedicated Google Cloud environment projects, configures Google Workspace (`GSUITE`) location-level identity and access control, wires real-time federated Google Workspace connectors alongside multi-entity Atlassian Jira, Atlassian Confluence, Slack Enterprise (`v3` MCP/BAP), HubSpot CRM, and Google People Directory connectors, provisions a unified Intranet Search Engine and Governed Enterprise Assistant, and distributes Gemini Enterprise seat licenses from a central Cloud Billing Account pool.
 
 ```mermaid
 flowchart TD
@@ -22,6 +22,7 @@ flowchart TD
     JiraCloud["Atlassian Jira Cloud (OAuth 2.0 3LO v3 / API Token v1)"]
     ConfluenceCloud["Atlassian Confluence (OAuth 2.0 3LO v4 / DC v1)"]
     SlackTenant["Slack Enterprise / Workspace (OAuth 2.0 v3 MCP / BYO App)"]
+    HubSpotCRM["HubSpot CRM (Service Key pat-ap1-...)"]
     BillingPool["GCP Cloud Billing Account (Subscription Seat Pool)"]
   end
 
@@ -37,6 +38,7 @@ flowchart TD
     JiraConn["Atlassian Jira Connector (5 Entities + Optional BAP Actions)"]
     ConfluenceConn["Atlassian Confluence Connector (Federated v4 Cloud / DC v1)"]
     SlackConn["Slack Connector (3 Federated Entities + MCP Actions)"]
+    HubSpotConn["HubSpot CRM Connector (4 Federated Entities)"]
     Engine["Unified Intranet Search App ({customer_id}-{env}-search-engine)"]
     Assistant["Governed Enterprise Assistant (default_assistant + Web Grounding)"]
   end
@@ -45,6 +47,7 @@ flowchart TD
   JiraCloud -.->|"TF_VAR_jira_auth Credentials"| JiraConn
   ConfluenceCloud -.->|"TF_VAR_confluence_auth / Jira Fallback"| ConfluenceConn
   SlackTenant -.->|"Google-Managed or BYO OAuth 2.0"| SlackConn
+  HubSpotCRM -.->|"TF_VAR_hubspot_auth Service Key"| HubSpotConn
   BillingPool -.->|"distributeLicenseConfig (make licenses)"| UStore
   SAgent --> WSConns
   ACL --> UStore
@@ -52,18 +55,20 @@ flowchart TD
   ACL --> JiraConn
   ACL --> ConfluenceConn
   ACL --> SlackConn
+  ACL --> HubSpotConn
   WSConns --> Engine
   JiraConn --> Engine
   ConfluenceConn --> Engine
   SlackConn --> Engine
+  HubSpotConn --> Engine
   Engine --> Assistant
   WSGroup -->|"roles/discoveryengine.user"| Engine
 ```
 
 #### Core Architectural Invariants
 
-1. **Mandatory `global` Location for Enterprise Federation:** The `location` variable defaults to `"global"`. Google Workspace (`google_mail`, `google_calendar`, `google_drive`, `google_chat`), Atlassian Jira, Atlassian Confluence, and Slack Enterprise connectors operate in `FEDERATED` mode. Queries execute in real time against external APIs under the end-user's OAuth identity without copying content into persistent GCP storage. Discovery Engine requires the `global` location for federated collections.
-2. **Staged Provisioning Across Human Authorization Gates:** The Google-managed Discovery Engine Service Agent (`service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com`) does not exist until the customer GCP project is created and `discoveryengine.googleapis.com` service identity generation is invoked. Consequently, provisioning is decoupled into **Stage 1 (Foundation Apply)** and **Stage 3 (Connectors, Engines & Assistants Apply)**, separated by **Stage 2 (Human Admin Authorization Gate)** so Domain-Wide Delegation (DWD), Atlassian Jira/Confluence OAuth apps, and Slack Enterprise configuration can be finalized before connector creation.
+1. **Mandatory `global` Location for Enterprise Federation:** The `location` variable defaults to `"global"`. Google Workspace (`google_mail`, `google_calendar`, `google_drive`, `google_chat`), Atlassian Jira, Atlassian Confluence, Slack Enterprise, and HubSpot CRM connectors operate in `FEDERATED` mode. Queries execute in real time against external APIs without copying content into persistent GCP storage. Discovery Engine requires the `global` location for federated collections.
+2. **Staged Provisioning Across Human Authorization Gates:** The Google-managed Discovery Engine Service Agent (`service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com`) does not exist until the customer GCP project is created and `discoveryengine.googleapis.com` service identity generation is invoked. Consequently, provisioning is decoupled into **Stage 1 (Foundation Apply)** and **Stage 3 (Connectors, Engines & Assistants Apply)**, separated by **Stage 2 (Human Admin Authorization Gate)** so Domain-Wide Delegation (DWD), Atlassian Jira/Confluence OAuth apps, Slack Enterprise configuration, and HubSpot CRM Service Keys can be finalized before connector creation.
 3. **Multi-Layered Production Deletion Protection:** Environment keys matching `prod` or `production` automatically set `deletion_policy = "PREVENT"` on `google_project.projects`. In addition, `scripts/plan_guard.py` blocks any Terraform plan containing resource deletions or replacements (`delete` or `replace`), and `scripts/status.py` aborts immediately if `terraform.tfstate` contains projects belonging to a different customer (`CRITICAL STATE MISMATCH`).
 
 ### 2. Local Workstation & CI Runner Toolchain Requirements
@@ -80,9 +85,9 @@ Before running any deployment command, verify that the operator machine or CI ru
 | **Terraform Provider: `google-beta`** | `~> 7.41` | `7.41.0` | Required for `google_project_service_identity.discoveryengine_sa` pre-creation in Stage 1. |
 | **Terraform Provider: `local`** | `>= 2.0.0` | `2.8.0` | Emits `config/license_allocations.json` from live Terraform project outputs. |
 
-### 3. Administrative & IAM Requirements Across All 5 Control Planes
+### 3. Administrative & IAM Requirements Across Control Planes
 
-Deploying Gemini Enterprise spans up to five distinct administrative control planes. Every role and prerequisite listed below must be in place prior to executing the corresponding stage.
+Deploying Gemini Enterprise spans administrative control planes across GCP, Google Workspace, and connected enterprise SaaS applications. Every role and prerequisite listed below must be in place prior to executing the corresponding stage.
 
 #### 3.1 Plane 1: Google Cloud Platform (Organization, Folder & Billing)
 
@@ -243,6 +248,20 @@ The repository supports provisioning a dedicated **Google Cloud Identity / Works
 | **Scoping & Filters** | Filter ingestion by Organizational Units (`org_units_include`) or custom employee schemas (`custom_schemas_include`). Optional flag `include_suspended_users = false`. |
 | **Conversational Query Examples** | • *"Who manages the Cloud Architecture team in Sydney?"*<br/>• *"Show me the reporting chain for John Doe up to the VP level."*<br/>• *"Find Staff Software Engineers in London with Kubernetes and Go skills."* |
 
+#### 3.8 Plane 8: HubSpot CRM Requirements (When `enable_hubspot_connector = true`)
+
+The repository supports deploying the **HubSpot CRM Federated Data Connector** (`hubspot-federated-collection`) alongside Google Workspace, Atlassian, and Slack connectors or in a **HubSpot-only** deployment (`enable_connectors = false`, `enable_hubspot_connector = true`).
+
+| Requirement Dimension | Specification & Guidance (`hubspot_auth_type = "SERVICE_KEY"`) |
+| :--- | :--- |
+| **Connector Architecture** | `FEDERATED` (`data_source = "hubspot"`, `destination_configs` host `https://api.hubapi.com`). Real-time federated query execution across HubSpot CRM objects without copying data into persistent GCP storage. |
+| **Provisioned Entities** | `contacts`, `companies`, `deals`, `tickets` (singular names such as `contact`, `company`, `deal`, `ticket` are automatically normalized in `main.tf`). |
+| **HubSpot Service Key Setup** | In [app.hubspot.com](https://app.hubspot.com) (*Development > Keys > Service Keys*), create a Service Key (`pat-ap1-...` / `pat-na1-...` / `pat-eu1-...`) as a HubSpot Super Admin. |
+| **Required HubSpot CRM Scopes** | `crm.objects.contacts.read`, `crm.objects.companies.read`, `crm.objects.deals.read`, `crm.objects.owners.read` (and `tickets` read access if querying support tickets). |
+| **Required `terraform.tfvars` Settings** | `enable_hubspot_connector = true`, `hubspot_auth_type = "SERVICE_KEY"`, and `hubspot_config` (`instance_uri = "https://api.hubapi.com"`, `connector_modes = ["FEDERATED"]`). |
+| **Runtime Secret Environment Variable (`TF_VAR_hubspot_auth`)** | `export TF_VAR_hubspot_auth='{"service_key":"pat-ap1-..."}'` *(or `{"oauth_access_token":"pat-ap1-..."}`; both map automatically to Discovery Engine's `oauth_access_token` parameter)*. |
+| **Checklist & Helper Target** | `make hubspot-checklist` |
+
 ### 4. Complete Configuration Input Reference (`variables.tf` & `terraform.tfvars`)
 
 Every deployment is driven by `terraform.tfvars` (copied from `terraform.tfvars.example` and excluded from Git via `.gitignore`).
@@ -262,6 +281,7 @@ Every deployment is driven by `terraform.tfvars` (copied from `terraform.tfvars.
 | `sa_email` | `string` | `null` | Stage 0 | Optional custom provisioner Service Account email. When `null` or `""`, ADC is used and `google_project_iam_member.sa_discoveryengine_admin` is skipped. |
 | `workspace_admin_email` | `string` | `null` | Stage 0 | Optional reference email of the customer's Google Workspace Administrator. |
 | `location` | `string` | `"global"` | Stage 0 | Discovery Engine location (`"global"` is required for federated Workspace connectors). |
+| `planned_connectors` | `list(string)` | `["workspace"]` | Stage 0 | List of connectors planned for onboarding (`workspace`, `jira`, `confluence`, `slack`, `people_directory`, `hubspot`). |
 | `enable_connectors` | `bool` | `false` | Stage 2 -> 3 | **Must be `false` in Stage 1.** Set to `true` after Workspace Domain-Wide Delegation is authorized in Stage 2. |
 | `workspace_connectors` | `set(string)` | `["google_mail", "google_calendar", "google_drive", "google_chat"]` | Stage 3 | Federated Google Workspace connectors created per environment when `enable_connectors = true`. |
 | `assistant_instructions` | `string` | Enterprise assistant prompt | Stage 3 | System instruction configured on `google_discovery_engine_assistant.default`. |
@@ -284,6 +304,10 @@ Every deployment is driven by `terraform.tfvars` (copied from `terraform.tfvars.
 | `slack_config` | `object` | `{}` | Stage 3 | Slack connector settings (`instance_uri`, `team_id`, `collection_id`, `data_source`, `data_source_version`, `connector_modes`, `sync_mode`, `refresh_interval`, `incremental_refresh_interval`, `entities`, `static_ip_enabled`, `enable_actions`, `enabled_actions`, `channels_include`, `channels_exclude`, `include_private_channels`, `include_dms`, `auto_run_disabled`, `incremental_sync_disabled`, `extra_params`). |
 | `enable_people_directory_connector` | `bool` | `false` | Stage 2 -> 3 | **Must be `false` in Stage 1.** Set to `true` after Workspace DWD with Directory scopes is authorized. |
 | `people_directory_config` | `object` | `{}` | Stage 3 | People Directory settings (`data_source`, `collection_id`, `display_name`, `include_suspended_users`, `org_units_include`, `custom_schemas_include`, `refresh_interval`, `sync_mode`, `entities`, `auto_run_disabled`). |
+| `enable_hubspot_connector` | `bool` | `false` | Stage 2 -> 3 | **Must be `false` in Stage 1.** Set to `true` when provisioning the HubSpot CRM connector in Stage 3. |
+| `hubspot_auth_type` | `string` | `"SERVICE_KEY"` | Stage 3 | Validated to be `"SERVICE_KEY"`, `"PRIVATE_APP_TOKEN"`, `"API_TOKEN"`, `"BEARER_TOKEN"`, `"OAUTH"`, or `"OAUTH2"`. |
+| `hubspot_auth` | `object` | `{}` | Stage 3 | `sensitive = true` credential map (`service_key`, `oauth_access_token`, `private_app_access_token`, `api_token`, `bearer_token`, `client_id`, `client_secret`, `refresh_token`). Supply via `TF_VAR_hubspot_auth`. |
+| `hubspot_config` | `object` | `{}` | Stage 3 | HubSpot CRM connector settings (`instance_uri`, `portal_id`, `collection_id`, `data_source`, `data_source_version`, `connector_modes = ["FEDERATED"]`, `sync_mode`, `refresh_interval`, `incremental_refresh_interval`, `entities = ["contacts", "companies", "deals", "tickets"]`, `static_ip_enabled`, `enable_actions`, `enabled_actions`, `auto_run_disabled`, `incremental_sync_disabled`, `extra_params`). |
 
 ### 5. Pre-Deployment Readiness Checklist
 
@@ -297,6 +321,7 @@ Before executing Stage 1, confirm all items below are checked:
 - [ ] If deploying Atlassian Jira (`enable_jira_connector = true`), an **Atlassian Admin** is available to register the 3LO app or API token and supply `TF_VAR_jira_auth`.
 - [ ] If deploying Atlassian Confluence (`enable_confluence_connector = true`), an **Atlassian Admin** is available to register the Confluence OAuth app or confirm shared tenant credentials (`make confluence-checklist`).
 - [ ] If deploying Slack Enterprise (`enable_slack_connector = true`), the target Slack Workspace URL (`slack_config.instance_uri`) and optional Team/Grid ID (`slack_config.team_id`) are known, and a **Slack Admin** is available if using a custom BYO Slack OAuth App (`TF_VAR_slack_auth`) or workspace app-approval policies.
+- [ ] If deploying HubSpot CRM (`enable_hubspot_connector = true`), a **HubSpot Super Admin** has created a Service Key (`pat-ap1-...`) with CRM read scopes and exported `TF_VAR_hubspot_auth` (`make hubspot-checklist`).
 - [ ] An active **Gemini Enterprise subscription** with sufficient seat capacity exists on the Cloud Billing Account (`var.billing_account`).
 
 ## Part II: Practitioner's Guide — Using the Repository Assets
@@ -307,20 +332,20 @@ The `gemini-prism` repository is architected for **deterministic, state-driven o
 
 | Repository Asset | Category | Primary Role & When Practitioners Use It |
 | :--- | :--- | :--- |
-| `Makefile` | Command Surface | Primary operator interface (`make status`, `make configure`, `make check-inputs`, `make plan-foundation`, `make apply-foundation`, `make dwd-checklist`, `make jira-checklist`, `make confluence-checklist`, `make slack-checklist`, `make people-checklist`, `make enable-connectors`, `make plan-connectors`, `make apply-connectors`, `make licenses-dryrun`, `make licenses`, `make licenses-list`, `make verify`, `make test`). |
-| `main.tf` | Terraform IaC | Defines the 9-step resource graph across customer environments: GCP Projects, APIs, Service Agent Identity, `GSUITE` Location ACL, Cloud Identity Groups, User Stores, Workspace, Jira, Confluence, Slack & People Directory Data Connectors, Search Engines, Engine IAM, Governed Assistants, and `config/license_allocations.json`. |
+| `Makefile` | Command Surface | Primary operator interface (`make status`, `make configure`, `make check-inputs`, `make plan-foundation`, `make apply-foundation`, `make dwd-checklist`, `make jira-checklist`, `make confluence-checklist`, `make slack-checklist`, `make hubspot-checklist`, `make people-checklist`, `make enable-connectors`, `make plan-connectors`, `make apply-connectors`, `make licenses-dryrun`, `make licenses`, `make licenses-list`, `make verify`, `make test`). |
+| `main.tf` | Terraform IaC | Defines the 9-step resource graph across customer environments: GCP Projects, APIs, Service Agent Identity, `GSUITE` Location ACL, Cloud Identity Groups, User Stores, Workspace, Jira, Confluence, Slack, HubSpot CRM & People Directory Data Connectors, Search Engines, Engine IAM, Governed Assistants, and `config/license_allocations.json`. |
 | `variables.tf` & `terraform.tfvars.example` | Terraform IaC | Declares all input variables, validation constraints, and a sanitized template for `terraform.tfvars`. |
-| `outputs.tf` | Terraform IaC | Emits environment resource maps plus structured `dwd_checklist`, `jira_checklist`, `confluence_checklist`, `slack_checklist`, and `people_directory_checklist` objects. |
+| `outputs.tf` | Terraform IaC | Emits environment resource maps plus structured `dwd_checklist`, `jira_checklist`, `confluence_checklist`, `slack_checklist`, `hubspot_checklist`, and `people_directory_checklist` objects. |
 | `providers.tf` & `versions.tf` | Terraform IaC | Configures `google`, `google-beta`, and `local` providers with dynamic `user_project_override` support. |
 | `scripts/configure.py` | Onboarding & Audit Engine | Interactive connector onboarding wizard (Mode B ANSI/TTY combo-box with arrow keys/spacebar and non-TTY fallback), cross-harness combo-box schema (Mode A `interactive_questions` for `ask_question`), missing-variable audit (`make check-inputs`) with Help Center links, Stage 0 deployment safety, and Stage 2 enablement helper (`make enable-connectors`). |
-| `scripts/status.py` | Automation Engine | Inspects live CLI tools, ADC identity, `terraform.tfvars`, and `terraform.tfstate` to detect the current deployment stage, enforce foreign state mismatch protection, and enrich DWD (`21-digit uniqueId`), Jira (`cloudId`), Confluence (`cloudId`), Slack, and People Directory checklists. |
+| `scripts/status.py` | Automation Engine | Inspects live CLI tools, ADC identity, `terraform.tfvars`, and `terraform.tfstate` to detect the current deployment stage, enforce foreign state mismatch protection, and enrich DWD (`21-digit uniqueId`), Jira (`cloudId`), Confluence (`cloudId`), Slack, HubSpot CRM, and People Directory checklists. |
 | `scripts/plan_guard.py` | Safety Barrier | Inspects binary `.tfplan` files via `terraform show -json` before and after plan creation. Halts with exit code `1` if any resource would be deleted or replaced unless `ALLOW_DESTROY=1` is set. |
 | `scripts/allocate_licenses.py` | License Tooling | Discovers Billing Account subscriptions (`--discover`), runs preflight project number & pool capacity assertions (`--dry-run`), distributes seats (`--distribute`), lists allocations (`--list`), retracts seats (`--retract`), and emits `license_config_names` HCL (`--emit-tfvars`). |
-| `scripts/verify.py` | Health Verifier | Audits User Stores, License Configs, Workspace, Jira, Confluence, Slack & People Directory Data Connectors (`STATE_ACTIVE`, `realtimeState`, `actionState`, `blockingReasons`, `errors`), Search Apps, and Assistants with configurable polling (`--wait 15m`) and `--json` reporting. |
+| `scripts/verify.py` | Health Verifier | Audits User Stores, License Configs, Workspace, Jira, Confluence, Slack, HubSpot CRM & People Directory Data Connectors (`STATE_ACTIVE`, `realtimeState`, `actionState`, `blockingReasons`, `errors`), Search Apps, and Assistants with configurable polling (`--wait 15m`) and `--json` reporting. |
 | `scripts/test_red.py` | Red-Team Test Suite | Comprehensive `unittest` harness validating negative failure paths, `--dry-run` safety, `plan_guard.py` blocking, `status.py` & `configure.py` phase/onboarding contracts, `RUNBOOK.md` & `AGENTS.md` contracts, Terraform connector defaults, markdown link integrity, and zero customer data leaks. |
 | `bootstrap.sh` | Bootstrap Helper | Optional interactive shell script that creates a `gemini-provisioner` Service Account in a bootstrap project, grants `roles/iam.serviceAccountTokenCreator` to the active `gcloud` user, and runs Stage 1 foundation provisioning. |
 | `RUNBOOK.md` | Operational Runbook | Stage-by-stage checklist with machine-checkable `Owner`, `Preconditions`, `Do`, `Done when`, and `If it fails` contracts. |
-| `AGENTS.md` & `.agent/workflows/deploy.md` | Agent Protocol | Rules of engagement, exit-code loop, and copy-paste human escalation templates (`dwd`, `jira`, `slack`, `permissions`, `subscription`, `state_mismatch`, `identity`) for AI agents. |
+| `AGENTS.md` & `.agent/workflows/deploy.md` | Agent Protocol | Rules of engagement, exit-code loop, and copy-paste human escalation templates (`dwd`, `jira`, `confluence`, `slack`, `hubspot`, `permissions`, `subscription`, `state_mismatch`, `identity`) for AI agents. |
 | `.github/workflows/terraform.yml` | CI Pipeline | GitHub Actions workflow running `terraform fmt -check -diff`, `terraform init -backend=false`, `terraform validate`, and `python3 -u scripts/test_red.py` on every push and PR. |
 
 ### 2. Deep-Dive: Operating the Core Scripts & Safety Guards
@@ -334,7 +359,7 @@ stateDiagram-v2
   [*] --> Phase0: make status
   Phase0: Stage 0 — preflight_inputs (Exit 1 on blocker)
   Phase1: Stage 1 — foundation_apply (Exit 0, Agent)
-  Phase2: Stage 2 — dwd / jira / confluence / slack_authorization (Exit 2, Human Gate)
+  Phase2: Stage 2 — dwd / jira / confluence / slack / hubspot_authorization (Exit 2, Human Gate)
   Phase3: Stage 3 — connectors_and_engines_apply (Exit 0, Agent)
   Phase4Sub: Stage 4 — subscription_setup (Exit 2, Human Gate if UUIDs missing)
   Phase4Dist: Stage 4 — license_distribution (Exit 0, Agent)
@@ -342,7 +367,7 @@ stateDiagram-v2
 
   Phase0 --> Phase1: Tools + ADC + tfvars valid & no foreign projects in state
   Phase1 --> Phase2: project_ids output populated for all environments
-  Phase2 --> Phase3: Planned connectors authorized & enabled (DWD / Jira / Confluence / Slack)
+  Phase2 --> Phase3: Planned connectors authorized & enabled (DWD / Jira / Confluence / Slack / HubSpot)
   Phase3 --> Phase4Sub: Engines, Assistants & Connectors in state (UUIDs missing)
   Phase3 --> Phase4Dist: Engines, Assistants & Connectors in state (UUIDs set)
   Phase4Sub --> Phase4Dist: license_config_id & subscription_id set in tfvars
@@ -353,15 +378,15 @@ stateDiagram-v2
 ##### How `status.py` Protects and Accelerates Practitioners
 
 1. **Zero-Dependency `terraform.tfvars` Validation & Placeholder Detection:**
-   `status.py` parses strings, booleans, lists, and nested maps (`seat_allocations`, `jira_config`, `slack_config`, `license_config_names`) directly from `terraform.tfvars`. If required keys (`customer_id`, `customer_name`, `company_domain`, `workspace_customer_id`, `billing_account`) are missing or still contain template placeholders (`example-customer`, `example.com`, `C01234567`, `0X1XXX-XXXXXX-XXXXXX`), it halts at **Stage 0** with `handoff_template: "inputs"` (`exit code 1`).
+   `status.py` parses strings, booleans, lists, and nested maps (`seat_allocations`, `jira_config`, `slack_config`, `hubspot_config`, `license_config_names`) directly from `terraform.tfvars`. If required keys (`customer_id`, `customer_name`, `company_domain`, `workspace_customer_id`, `billing_account`) are missing or still contain template placeholders (`example-customer`, `example.com`, `C01234567`, `0X1XXX-XXXXXX-XXXXXX`), it halts at **Stage 0** with `handoff_template: "inputs"` (`exit code 1`).
 2. **Foreign State Mismatch Guard (`CRITICAL STATE MISMATCH`):**
    Before allowing any Terraform plan, `status.py` inspects `terraform.tfstate` for `google_project` resources. If any project ID in state does not belong to `${project_id_prefix}${customer_id}-<env>`, it halts immediately with `exit code 1` and `handoff_template: "state_mismatch"`, preventing an operator from accidentally destroying a previous customer's environment when reusing a local clone.
 3. **Live Resolution of the 21-Digit Numeric DWD Client ID (`make dwd-checklist`):**
    Google Workspace Admin Console's Domain-Wide Delegation screen requires the **21-digit numeric OAuth2 Client ID (`uniqueId`)** of the Discovery Engine Service Agent (`service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com`). Because Google-managed Service Agents are hidden from the standard Cloud Console IAM Service Accounts list, `make dwd-checklist` automatically calls:
    `POST https://serviceusage.googleapis.com/v1beta1/projects/<PROJECT_NUMBER>/services/discoveryengine.googleapis.com:generateServiceIdentity`
    and injects `"client_id": "<21-digit-uniqueId>"` into the checklist JSON for every environment.
-4. **Live Resolution of Atlassian `cloudId` (`make jira-checklist` & `make confluence-checklist`) & Slack Checklist (`make slack-checklist`):**
-   When `jira_config.instance_uri` or `confluence_config.instance_uri` is configured (e.g., `https://acme.atlassian.net`), running `make jira-checklist` or `make confluence-checklist` queries `https://acme.atlassian.net/_edge/tenant_info` and automatically populates `"resolved_cloud_id"` and `"instance_id"` alongside the required OAuth callback URLs, scope lists, and entity mappings (with automatic Jira fallback for Confluence). Similarly, `make slack-checklist` emits the Slack `v3` Federated + Actions setup checklist (`https://mcp.slack.com` Google-Managed vs. BYO OAuth App instructions, redirect URLs, scopes, and target entities `conversation`, `message`, `file`).
+4. **Live Resolution of Atlassian `cloudId` (`make jira-checklist` & `make confluence-checklist`), Slack Checklist (`make slack-checklist`), & HubSpot Checklist (`make hubspot-checklist`):**
+   When `jira_config.instance_uri` or `confluence_config.instance_uri` is configured (e.g., `https://acme.atlassian.net`), running `make jira-checklist` or `make confluence-checklist` queries `https://acme.atlassian.net/_edge/tenant_info` and automatically populates `"resolved_cloud_id"` and `"instance_id"` alongside the required OAuth callback URLs, scope lists, and entity mappings (with automatic Jira fallback for Confluence). Similarly, `make slack-checklist` emits the Slack `v3` Federated + Actions setup checklist (`https://mcp.slack.com` Google-Managed vs. BYO OAuth App instructions, redirect URLs, scopes, and target entities `conversation`, `message`, `file`), and `make hubspot-checklist` emits the HubSpot CRM Federated setup checklist (`https://api.hubapi.com`, required CRM scopes, target entities `contacts`, `companies`, `deals`, `tickets`, and `TF_VAR_hubspot_auth` instructions).
 
 #### 2.2 Destructive Change Prevention with `scripts/plan_guard.py`
 
@@ -425,7 +450,7 @@ make configure
 make check-inputs
 
 # Non-interactive application for coding harnesses (Mode A):
-python3 scripts/configure.py --apply-json '{"planned_connectors":["workspace","jira"],"customer_id":"acme"}'
+python3 scripts/configure.py --apply-json '{"planned_connectors":["workspace","jira","hubspot"],"customer_id":"acme"}'
 
 # Stage 2 connector enablement helper:
 make enable-connectors
@@ -437,11 +462,11 @@ make enable-connectors
 2. **Mode B: Interactive Terminal Combo-Box:**
    When run in an interactive terminal (`sys.stdin.isatty() == True`), `configure.py` renders an ANSI arrow-key (`[↑/↓]`) and spacebar (`[Space]`) multi-select combo-box (`[✓] / [ ]`). If raw mode or TTY is unavailable, it gracefully falls back to numbered prompt selection. Operators can type `?` at any prompt to display an inline boxed "Where to find this" guide with exact console links, CLI lookup commands, and documentation.
 3. **Stage 0 Deployment Safety Guard:**
-   During Stage 0, `configure.py` records `planned_connectors` (e.g. `["workspace", "jira"]`) in `terraform.tfvars` while strictly guaranteeing `enable_connectors = false`, `enable_jira_connector = false`, and `enable_people_directory_connector = false` to prevent premature connector provisioning before Foundation apply.
+   During Stage 0, `configure.py` records `planned_connectors` (e.g. `["workspace", "jira", "hubspot"]`) in `terraform.tfvars` while strictly guaranteeing `enable_connectors = false`, `enable_jira_connector = false`, `enable_confluence_connector = false`, `enable_slack_connector = false`, `enable_people_directory_connector = false`, and `enable_hubspot_connector = false` to prevent premature connector provisioning before Foundation apply.
 4. **Missing-Variable Audit (`make check-inputs`):**
    Compares `terraform.tfvars` against `planned_connectors`, highlighting missing and placeholder variables alongside exact admin console URLs, CLI lookup commands, required IAM roles, and official Help Center documentation.
 5. **Stage 2 Enablement Helper (`make enable-connectors`):**
-   After Foundation apply and Stage 2 authorizations are complete, `make enable-connectors` validates prerequisites (Workspace customer ID/domain, Jira URI/credentials, People Directory scopes) and automatically flips the corresponding `enable_* = true` flags in `terraform.tfvars`.
+   After Foundation apply and Stage 2 authorizations are complete, `make enable-connectors` validates prerequisites (Workspace customer ID/domain, Jira/Confluence URI & credentials, Slack URI, HubSpot Service Key in `TF_VAR_hubspot_auth`, People Directory scopes) and automatically flips the corresponding `enable_* = true` flags in `terraform.tfvars`.
 
 #### 2.5 Post-Deployment Health Verification with `scripts/verify.py`
 
@@ -458,7 +483,7 @@ python3 scripts/verify.py --project <PROJECT_ID> --json
 `verify.py` inspects 5 resource layers per project:
 - `User Store (default_user_store)`: Verifies `Auto-Register: True` and `Auto-Update: True`.
 - `License Config (<id>)`: Verifies `ACTIVE` state and seat count.
-- `Connector (<data_source>)`: Inspects every collection's `dataConnector` (`google_mail`, `google_calendar`, `google_drive`, `google_chat`, `jira`, `slack`), reporting entity count (`Entities: 5` for Jira, `Entities: 3` for Slack), `Realtime` state, `ActionState`, `Blocking` reasons (e.g., `ALLOWLIST_STATIC_IP`), and any connector `Errors`.
+- `Connector (<data_source>)`: Inspects every collection's `dataConnector` (`google_mail`, `google_calendar`, `google_drive`, `google_chat`, `jira`, `confluence`, `slack`, `hubspot`, `native_cloud_identity`), reporting entity count (`Entities: 5` for Jira, `Entities: 3` for Slack, `Entities: 4` for HubSpot), `Realtime` state, `ActionState`, `Blocking` reasons (e.g., `ALLOWLIST_STATIC_IP`), and any connector `Errors`.
 - `Search App (<engine_id>)`: Verifies the unified engine in `default_collection` and counts attached `DataStores`.
 - `Assistant (default_assistant)`: Verifies `ACTIVE` state and `Web Grounding: WEB_GROUNDING_TYPE_GOOGLE_SEARCH`.
 
@@ -470,11 +495,11 @@ Before committing any modification to `.tf` files, Python scripts, or documentat
 make test
 ```
 
-`make test` executes `python3 scripts/test_red.py`, `terraform fmt -check`, and `terraform validate`. The 46 unit and contract tests in `test_red.py` enforce:
+`make test` executes `python3 scripts/test_red.py`, `terraform fmt -check`, and `terraform validate`. The unit and contract tests in `test_red.py` enforce:
 - **Negative & Adversarial API Handling:** Missing/malformed JSON configs, project number mismatches, insufficient billing pool capacity, and `--dry-run` zero-mutation guarantees in `allocate_licenses.py`.
 - **Plan Guard Enforcement:** Rejection of `["delete"]`, `["delete", "create"]`, and `["create", "delete"]` plans, and safe handling of `create`/`update`/`no-op`/`local_file`.
-- **State Machine & Connector Determinism:** All phase transitions (`Stage 0` through `Stage 5`), Workspace, Jira-only, Slack-only, and multi-connector gating, `v3` Slack Federated + MCP Actions defaults, and foreign state mismatch detection in `status.py`.
-- **Documentation & Agent Contracts:** Every `## Stage` section in `RUNBOOK.md` must contain all 5 mandatory headings (`**Owner:**`, `**Preconditions (machine-checkable):**`, `**Do:**`, `**Done when:**`, `**If it fails:**`); `AGENTS.md` must remain `<= 150` lines and include all 7 hand-off templates (`dwd`, `jira`, `slack`, `permissions`, `subscription`, `state_mismatch`, `identity`); all relative links across `README.md`, `RUNBOOK.md`, `AGENTS.md`, `GEMINI.md`, `PRACTITIONERS_GUIDE.md`, and `docs/CONNECTORS_ROADMAP.md` must resolve; and `TestDataScrubbing` scans `git ls-files` to guarantee zero leaked customer identifiers or real billing/subscription IDs.
+- **State Machine & Connector Determinism:** All phase transitions (`Stage 0` through `Stage 5`), Workspace, Jira-only, Confluence-only, Slack-only, HubSpot-only, and multi-connector gating, `v3` Slack Federated + MCP Actions defaults, HubSpot CRM `FEDERATED` defaults, and foreign state mismatch detection in `status.py`.
+- **Documentation & Agent Contracts:** Every `## Stage` section in `RUNBOOK.md` must contain all 5 mandatory headings (`**Owner:**`, `**Preconditions (machine-checkable):**`, `**Do:**`, `**Done when:**`, `**If it fails:**`); `AGENTS.md` must remain `<= 150` lines and include all required hand-off templates (`dwd`, `jira`, `confluence`, `slack`, `hubspot`, `permissions`, `subscription`, `state_mismatch`, `identity`); all relative links across `README.md`, `RUNBOOK.md`, `AGENTS.md`, `GEMINI.md`, `PRACTITIONERS_GUIDE.md`, and `docs/CONNECTORS_ROADMAP.md` must resolve; and `TestDataScrubbing` scans `git ls-files` to guarantee zero leaked customer identifiers or real billing/subscription IDs.
 
 ### 3. Step-by-Step Practitioner Walkthrough (Stages 0–5)
 
@@ -490,7 +515,7 @@ make test
    - **Interactive Wizard (Humans)**: Run `make configure` to launch the multi-select combo-box.
    - **Cross-Harness (Agents)**: Inspect `interactive_questions` from `make status ARGS="--json"` and apply via `python3 scripts/configure.py --apply-json '<json>'`.
    - **Manual Configuration**: Alternatively, copy `cp terraform.tfvars.example terraform.tfvars` and edit customer values.
-   Ensure `planned_connectors` records your intended connectors (e.g. `["workspace", "jira", "confluence", "slack"]`), while `enable_connectors = false`, `enable_jira_connector = false`, `enable_confluence_connector = false`, and `enable_slack_connector = false` remain `false` for Stage 1:
+   Ensure `planned_connectors` records your intended connectors (e.g. `["workspace", "jira", "confluence", "slack", "hubspot"]`), while `enable_connectors = false`, `enable_jira_connector = false`, `enable_confluence_connector = false`, `enable_slack_connector = false`, and `enable_hubspot_connector = false` remain `false` for Stage 1:
    ```yaml
    customer_id                 = "acme"
    customer_name               = "Acme Corporation"
@@ -504,6 +529,7 @@ make test
    enable_jira_connector       = false
    enable_confluence_connector = false
    enable_slack_connector      = false
+   enable_hubspot_connector    = false
    ```
 3. Audit inputs and missing variables:
    ```bash
@@ -530,7 +556,7 @@ make test
    ```
    Confirm `make status` exits with code `2` and displays `Current Phase : Stage 2 — Dwd Authorization`.
 
-#### Stage 2 — Human Admin Authorization Gate (Workspace DWD, Jira, Confluence & Slack)
+#### Stage 2 — Human Admin Authorization Gate (Workspace DWD, Jira, Confluence, Slack & HubSpot)
 
 1. **Authorize Google Workspace Domain-Wide Delegation (If deploying Workspace or People Directory connectors):**
    ```bash
@@ -561,12 +587,18 @@ make test
      ```bash
      export TF_VAR_slack_auth='{"client_id":"...","client_secret":"..."}'
      ```
-5. **Enable Planned Connectors & Unlock Stage 3:**
+5. **Configure HubSpot CRM Authorization (If deploying HubSpot):**
+   - Run `make hubspot-checklist` to review the required CRM read scopes (`crm.objects.contacts.read`, `crm.objects.companies.read`, `crm.objects.deals.read`, `crm.objects.owners.read`) and target entities (`contacts`, `companies`, `deals`, `tickets`).
+   - Create a Service Key (`pat-ap1-...`) in [app.hubspot.com](https://app.hubspot.com) and export it in your shell environment:
+     ```bash
+     export TF_VAR_hubspot_auth='{"service_key":"pat-ap1-..."}'
+     ```
+6. **Enable Planned Connectors & Unlock Stage 3:**
    - Run the Stage 2 enablement helper to validate prerequisites and activate connectors:
      ```bash
      make enable-connectors
      ```
-     This validates all prerequisites (Workspace domain, customer ID, Jira/Confluence URI & OAuth, Slack URI, People Directory) and sets the matching `enable_* = true` flags in `terraform.tfvars`.
+     This validates all prerequisites (Workspace domain, customer ID, Jira/Confluence URI & OAuth, Slack URI, HubSpot Service Key, People Directory) and sets the matching `enable_* = true` flags in `terraform.tfvars`.
    - Run `make status` and confirm it reports `Stage 3 — Connectors And Engines Apply` (`exit code 0`).
 
 #### Stage 3 — Connectors, Search Engines & Governed Assistants Apply
@@ -616,8 +648,8 @@ make test
    - Add pilot test users to `{customer_id}-{env}-users@{company_domain}` in [Google Workspace Admin Console](https://admin.google.com).
    - Wait **1–3 minutes** for Cloud Identity group membership and User Store license auto-registration to propagate.
    - Open the Gemini Enterprise Web App URL in an Incognito browser window as a pilot user.
-   - **If Slack, Jira, or Confluence (`FEDERATED`) is deployed:** Click **Sources** in the prompt bar, click **Connect** next to the connector once to complete per-user OAuth consent, and start a **New chat** session so the assistant loads the authorized connector skill cleanly.
-   - Verify federated search and cited conversational answers across Gmail, Drive, Calendar, Chat, Jira issues, Confluence spaces/pages, and Slack channels/messages from `default_assistant`.
+   - **If Slack, Jira, Confluence, or HubSpot (`FEDERATED`) is deployed:** Click **Sources** in the prompt bar, click **Connect** next to the connector once to complete per-user OAuth consent (if applicable), and start a **New chat** session so the assistant loads the authorized connector skill cleanly.
+   - Verify federated search and cited conversational answers across Gmail, Drive, Calendar, Chat, Jira issues, Confluence spaces/pages, Slack channels/messages, and HubSpot CRM contacts/companies/deals/tickets from `default_assistant`.
 
 ### 4. Practitioner Troubleshooting & Day-2 Playbooks
 
@@ -627,7 +659,9 @@ make test
 | `google_cloud_identity_group.users: Error 403: Forbidden` | The user authenticated in `gcloud auth application-default login` lacks the Workspace **Groups Admin** role. | Grant **Groups Admin** to the operator in [admin.google.com/ac/roles](https://admin.google.com/ac/roles), re-run `gcloud auth application-default login`, and re-run `make apply-foundation`. |
 | `google_discovery_engine_data_connector: PERMISSION_DENIED` or `unauthorized_client` | Workspace Domain-Wide Delegation OAuth token propagation delay (typically 5–15 minutes) or missing scope. | Wait 5 minutes and retry `make apply-connectors`. If it persists past 15 minutes, run `make dwd-checklist` and verify the 21-digit `client_id` and all 12 scopes in [admin.google.com/ac/owl/domainwidedelegation](https://admin.google.com/ac/owl/domainwidedelegation). |
 | `google_discovery_engine_assistant.default: Error 400 / 409 (Only one assistant / Already Exists)` | Creating a search engine with `SEARCH_ADD_ON_LLM` automatically creates `default_assistant` on the backend. | Import the existing assistant into Terraform state:<br/>`terraform import 'google_discovery_engine_assistant.default["<env>"]' projects/<PROJECT_ID>/locations/global/collections/default_collection/engines/<ENGINE_ID>/assistants/default_assistant`<br/>Then re-run `make plan-connectors && make apply-connectors`. |
-| `verify.py` reports `[WARN] Connector (jira / confluence / slack) ... Blocking: ALLOWLIST_STATIC_IP` | The target Jira/Confluence Cloud or Slack Enterprise Grid tenant enforces IP allowlisting and is blocking Discovery Engine egress IPs. | Set `static_ip_enabled = true` in `jira_config` / `confluence_config` / `slack_config` in `terraform.tfvars`, run `make plan-connectors && make apply-connectors`, inspect `static_ip_addresses` in the corresponding checklist, and allowlist those IPs in the tenant admin console. |
+| `verify.py` reports `[WARN] Connector (jira / confluence / slack / hubspot) ... Blocking: ALLOWLIST_STATIC_IP` | The target Jira/Confluence Cloud, Slack Enterprise Grid, or HubSpot tenant enforces IP allowlisting and is blocking Discovery Engine egress IPs. | Set `static_ip_enabled = true` in `jira_config` / `confluence_config` / `slack_config` / `hubspot_config` in `terraform.tfvars`, run `make plan-connectors && make apply-connectors`, inspect `static_ip_addresses` in the corresponding checklist, and allowlist those IPs in the tenant admin console. |
 | `google_discovery_engine_data_connector: Confluence OAuth Error / Refresh Token Expired` | Confluence 3LO app credentials invalid or missing `offline_access` scope. | Run `make confluence-checklist`, re-verify the 3LO app in Atlassian Developer Console with `offline_access`, and export via `TF_VAR_confluence_auth`. |
+| `google_discovery_engine_data_connector: HubSpot 401 / 403 UNAUTHORIZED` | HubSpot Service Key (`pat-ap1-...`) is missing, expired, or lacks required CRM read scopes. | Run `make hubspot-checklist`, verify the Service Key in [app.hubspot.com](https://app.hubspot.com) has `crm.objects.contacts.read`, `crm.objects.companies.read`, `crm.objects.deals.read`, and `crm.objects.owners.read`, and export `TF_VAR_hubspot_auth='{"service_key":"pat-ap1-..."}'`. |
 | Assistant does not draw answers from Slack on first query | Third-party federated connectors start unselected in the Web App until the user completes per-user OAuth, or the chat session started before authorization. | In the Gemini Enterprise Web App, open **Sources**, click **Connect** next to **Slack** to complete OAuth, then click **New chat** and ask your question in a fresh conversation. |
 | `Preflight assertion failed: Insufficient license seats in billing pool` | Total seats in `var.seat_allocations` exceed `availableLicenseCount` on the Cloud Billing Account. | Either reduce `seat_allocations` in `terraform.tfvars` (and re-run `make apply-connectors`), retract unused seats from older projects via `python3 scripts/allocate_licenses.py --retract --target-project <OLD_PROJECT_ID>`, or increase subscription seats in Cloud Console Billing. |
+

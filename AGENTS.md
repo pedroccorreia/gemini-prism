@@ -36,6 +36,7 @@ When entering Stage 0 (`make status --json` reports `phase: 0`):
 | **Stage 2** | Atlassian Jira authorization / URI missing | Valid Jira URI & credentials configured | `jira` |
 | **Stage 2** | Atlassian Confluence authorization / URI missing | Valid Confluence URI & credentials configured | `confluence` |
 | **Stage 2** | Slack Enterprise authorization / URI missing | Valid Slack URI / `team_id` & credentials configured | `slack` |
+| **Stage 2** | HubSpot CRM authorization / token missing | Valid HubSpot service key (`TF_VAR_hubspot_auth`) configured | `hubspot` |
 | **Stage 4** | Missing billing subscription IDs | Subscription IDs set in tfvars | `subscription` |
 
 ## Phase Detection (`make status --json`)
@@ -83,6 +84,13 @@ Run `make slack-checklist` to view the Federated + MCP Actions setup, OAuth redi
 Set slack_config.instance_uri (and optional team_id) in terraform.tfvars; optionally create a BYO Slack App in https://api.slack.com/apps and set TF_VAR_slack_auth.
 ```
 
+### `hubspot`
+```text
+ACTION REQUIRED (HubSpot Admin): Configure HubSpot CRM authorization.
+Run `make hubspot-checklist` to view the required CRM read scopes and target entities (contacts, companies, deals, tickets).
+Create a Private App / Service Key in https://app.hubspot.com (pat-ap1-...) and export TF_VAR_hubspot_auth='{"oauth_access_token":"pat-ap1-..."}'.
+```
+
 ### `permissions`
 ```text
 ACTION REQUIRED (IAM & Workspace Admin): The executing principal lacks required permissions.
@@ -116,6 +124,7 @@ Run `gcloud auth application-default login` and `gcloud auth login` with a custo
 | `jira: 401/403/UNAUTHORIZED` | Invalid Jira credentials or scopes | Post `jira` template; verify `TF_VAR_jira_auth` |
 | `confluence: 401/403/UNAUTHORIZED` | Invalid Confluence credentials or scopes | Post `confluence` template; verify `TF_VAR_confluence_auth` / `TF_VAR_jira_auth` |
 | `slack: 401/403/invalid_auth` | Invalid Slack OAuth credentials or scopes | Post `slack` template; verify `slack_config` & `TF_VAR_slack_auth` |
+| `hubspot: 401/403/UNAUTHORIZED` | Invalid HubSpot service key or scopes | Post `hubspot` template; verify `TF_VAR_hubspot_auth` |
 | `DataStore ... is being deleted` | Async GCP deletion after collection removal (up to 2h) | Use a distinct `collection_id` in connector config |
 | `DeleteCollection: 500 / spanner: value not found` | Deleting a `FEDERATED` connector while `state == "CREATING"` | Wait ~5m for BAP connection to reach `ACTIVE` or `FAILED` before deleting |
 | `assistant: 409 ALREADY_EXISTS` | Engine auto-creates `default_assistant` | Import into state before `make apply-connectors` |

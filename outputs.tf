@@ -208,3 +208,29 @@ output "slack_checklist" {
   }
 }
 
+output "hubspot_checklist" {
+  description = "HubSpot CRM connector configuration and onboarding checklist per environment"
+  value = {
+    for k, v in local.environments : k => {
+      project_id          = google_project.projects[k].project_id
+      instance_uri        = try(coalesce(var.hubspot_config.instance_uri), "https://api.hubapi.com")
+      portal_id           = try(coalesce(var.hubspot_config.portal_id), "")
+      auth_type           = var.hubspot_auth_type
+      collection_id       = try(coalesce(trimspace(var.hubspot_config.collection_id)), "") != "" ? trimspace(var.hubspot_config.collection_id) : "hubspot-federated-collection"
+      data_source         = coalesce(var.hubspot_config.data_source, "hubspot")
+      connector_modes     = local.effective_hubspot_modes
+      entities            = coalesce(var.hubspot_config.entities, ["contacts", "companies", "deals", "tickets"])
+      static_ip_addresses = contains(keys(google_discovery_engine_data_connector.connectors), "${k}-hubspot") ? google_discovery_engine_data_connector.connectors["${k}-hubspot"].static_ip_addresses : []
+      hubspot_console_url = "https://app.hubspot.com"
+      required_scopes = [
+        "crm.objects.contacts.read",
+        "crm.objects.companies.read",
+        "crm.objects.deals.read",
+        "crm.objects.owners.read"
+      ]
+      action_instructions = "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with required CRM scopes, and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")."
+    }
+  }
+}
+
+

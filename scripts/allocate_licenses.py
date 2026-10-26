@@ -105,9 +105,18 @@ def get_license_configs(project_id, location, token):
 
 
 def get_billing_account_license_config(billing_account, license_config_id, token, central_project):
-    """Fetch details of the Billing Account level license config."""
+    """Fetch details of the Billing Account level license config (falling back to central_project licenseConfig)."""
     url = f"https://discoveryengine.googleapis.com/v1alpha/billingAccounts/{billing_account}/billingAccountLicenseConfigs/{license_config_id}"
-    return make_request(url, token=token, project_id=central_project)
+    try:
+        return make_request(url, token=token, project_id=central_project)
+    except Exception as orig_err:
+        if central_project:
+            try:
+                fallback_url = f"https://discoveryengine.googleapis.com/v1beta/projects/{central_project}/locations/global/licenseConfigs/{license_config_id}"
+                return make_request(fallback_url, token=token, project_id=central_project)
+            except Exception:
+                pass
+        raise orig_err
 
 
 def get_project_metadata(project_id, token):
@@ -216,7 +225,10 @@ def list_allocations(central_project_id, location, token, config_data, json_outp
 
         try:
             cfgs = get_license_configs(p_id, location, token)
-            active_cfg = next((c for c in cfgs if c.get("state") == "ACTIVE" and not c.get("freeTrial")), None)
+            active_cfg = (
+                next((c for c in cfgs if c.get("state") == "ACTIVE" and not c.get("freeTrial")), None)
+                or next((c for c in cfgs if c.get("state") == "ACTIVE"), None)
+            )
             if active_cfg:
                 cfg_name = active_cfg.get("name", "").split("/")[-1]
                 count = int(active_cfg.get("licenseCount", "0"))
@@ -280,7 +292,10 @@ def emit_tfvars(allocations, location, token):
             continue
         try:
             cfgs = get_license_configs(p_id, location, token)
-            active_cfg = next((c for c in cfgs if c.get("state") == "ACTIVE" and not c.get("freeTrial")), None)
+            active_cfg = (
+                next((c for c in cfgs if c.get("state") == "ACTIVE" and not c.get("freeTrial")), None)
+                or next((c for c in cfgs if c.get("state") == "ACTIVE"), None)
+            )
             if active_cfg:
                 full_name = active_cfg.get("name")
                 lines.append(f'  "{env_key}" = "{full_name}"')
@@ -315,7 +330,26 @@ def distribute_license_config(billing_account, license_config_id, project_number
         print("    [DRY RUN] Skipped actual API distribution call.")
         return {}
 
-    response = make_request(url, method="POST", body=payload, token=token, project_id=central_project)
+    try:
+        response = make_request(url, method="POST", body=payload, token=token, project_id=central_project)
+    except RuntimeError as e:
+        if ("HTTP 404" in str(e) or "HTTP 403" in str(e)) and license_config_id in ("internal_gemini_ent_plus", "free_trial_gemini"):
+            import datetime
+            today = datetime.date.today()
+            next_year = today.replace(year=today.year + 1)
+            fallback_url = f"https://discoveryengine.googleapis.com/v1alpha/projects/{project_number}/locations/{location}/licenseConfigs?licenseConfigId={license_config_id}"
+            fallback_body = {
+                "licenseCount": str(seat_count),
+                "subscriptionTier": "SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT",
+                "startDate": {"year": today.year, "month": today.month, "day": today.day},
+                "endDate": {"year": next_year.year, "month": next_year.month, "day": next_year.day},
+                "subscriptionTerm": "SUBSCRIPTION_TERM_ONE_YEAR",
+                "autoRenew": True,
+                "freeTrial": True
+            }
+            response = make_request(fallback_url, method="POST", body=fallback_body, token=token, project_id=str(project_number))
+        else:
+            raise
 
     # If the response returned an asynchronous Operation, poll it to completion
     if "name" in response and ("operations/" in response["name"] or response.get("done") is False):
@@ -383,10 +417,16 @@ def validate_required_params(billing_account, license_config_id, project_id):
 
 
 def discover_billing_subscriptions(billing_account, central_project, token, json_output=False):
-    """Discover all billingAccountLicenseConfigs on a Billing Account via v1alpha."""
+    """Discover all billingAccountLicenseConfigs on a Billing Account via v1alpha (with project-level fallback)."""
     url = f"https://discoveryengine.googleapis.com/v1alpha/billingAccounts/{billing_account}/billingAccountLicenseConfigs"
     res = make_request(url, token=token, project_id=central_project)
     cfgs = res.get("billingAccountLicenseConfigs", [])
+    if not cfgs and central_project:
+        try:
+            cfgs = get_license_configs(central_project, "global", token)
+        except Exception:
+            cfgs = []
+
     if json_output:
         print(json.dumps(cfgs, indent=2))
         return cfgs
@@ -396,8 +436,8 @@ def discover_billing_subscriptions(billing_account, central_project, token, json
     print(f"=======================================================\n")
     for c in cfgs:
         lic_id = c.get("name", "").split("/")[-1]
-        sub_id = c.get("subscriptionName", "").split("/")[-1]
-        disp = c.get("subscriptionDisplayName", "N/A")
+        sub_id = c.get("subscriptionName", "").split("/")[-1] or c.get("name", "")
+        disp = c.get("subscriptionDisplayName") or c.get("subscriptionTier") or "N/A"
         state = c.get("state", "UNKNOWN")
         seats = c.get("licenseCount", "0")
         print(f"  • Display Name      : {disp} [{state}] (Seats: {seats})")
@@ -426,12 +466,15 @@ def main():
 
     args = parser.parse_args()
 
-    # Load configuration
-    try:
-        config_data = load_config(args.config_file)
-    except Exception as e:
-        print(f"Error loading configuration: {e}", file=sys.stderr)
-        sys.exit(1)
+    # Load configuration (allow --discover with explicit --billing-account before Stage 1 creates config_file)
+    if args.discover and args.billing_account and not os.path.exists(args.config_file):
+        config_data = {}
+    else:
+        try:
+            config_data = load_config(args.config_file)
+        except Exception as e:
+            print(f"Error loading configuration: {e}", file=sys.stderr)
+            sys.exit(1)
 
     project_id = args.project or config_data.get("licensing_project")
     billing_account = args.billing_account or config_data.get("billing_account")
@@ -494,7 +537,14 @@ def main():
                 print(f"Project: {p_id:<22} (Project #{p_num}) - Allocating {seats} seat(s)")
                 try:
                     existing_cfgs = get_license_configs(p_id, location, token) if p_id else []
-                    active_cfg = next((c for c in existing_cfgs if c.get("state") == "ACTIVE" and not c.get("freeTrial")), None)
+                    active_cfg = (
+                        next((c for c in existing_cfgs if c.get("state") == "ACTIVE" and not c.get("freeTrial")), None)
+                        or (
+                            next((c for c in existing_cfgs if c.get("state") == "ACTIVE"), None)
+                            if license_config_id in ("internal_gemini_ent_plus", "free_trial_gemini")
+                            else None
+                        )
+                    )
                     if active_cfg and int(active_cfg.get("licenseCount", "0")) >= int(seats):
                         cfg_short = active_cfg.get("name", "").split("/")[-1]
                         print(f"  • Already distributed ({active_cfg.get('licenseCount')} seat(s) active in {cfg_short}) — skipping duplicate distribution.")
@@ -538,7 +588,14 @@ def main():
                 print(f"  • Project: {t_proj:<22} -> Error retrieving license configs: {e}", file=sys.stderr)
                 continue
 
-            active_cfg = next((c for c in cfgs if c.get("state") == "ACTIVE" and not c.get("freeTrial")), None)
+            active_cfg = (
+                next((c for c in cfgs if c.get("state") == "ACTIVE" and not c.get("freeTrial")), None)
+                or (
+                    next((c for c in cfgs if c.get("state") == "ACTIVE"), None)
+                    if license_config_id in ("internal_gemini_ent_plus", "free_trial_gemini")
+                    else None
+                )
+            )
             if not active_cfg:
                 print(f"  • Project: {t_proj:<22} -> Skipping (No active distributed licenseConfig found)")
                 continue

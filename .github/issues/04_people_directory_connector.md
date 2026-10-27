@@ -24,7 +24,7 @@ This powers natural language organizational queries in Gemini Enterprise, such a
 - **Required Google Workspace Directory Scopes:**
   - `https://www.googleapis.com/auth/admin.directory.user.readonly` (already included in Prism's `dwd_scopes`!)
   - `https://www.googleapis.com/auth/admin.directory.orgunit.readonly`
-  - `https://www.googleapis.com/auth/admin.directory.customschema.readonly`
+  - `https://www.googleapis.com/auth/admin.directory.userschema.readonly`
 - **Zero Additional Credentials Needed:** Leverages the service account authorization already authorized in Google Workspace Admin Console (`admin.google.com`).
 
 ### Proposed Terraform Configuration Architecture
@@ -55,6 +55,6 @@ variable "people_directory_config" {
 
 ### Acceptance Criteria
 - [x] Variables defined in `variables.tf` (`enable_people_directory_connector`, `people_directory_config`) and exported in `outputs.tf` (`people_directory_checklist`).
-- [x] Validate that existing DWD client authorization covers all needed Directory API endpoints (`admin.directory.user.readonly`, `admin.directory.orgunit.readonly`, `admin.directory.customschema.readonly`).
+- [x] Validate that existing DWD client authorization covers all needed Directory API endpoints (`admin.directory.user.readonly`, `admin.directory.orgunit.readonly`, `admin.directory.userschema.readonly`).
 - [x] Add query examples in `PRACTITIONERS_GUIDE.md` demonstrating org-search and people-finder conversational queries.
 - [x] Automated validation in `scripts/status.py` and `scripts/verify.py` ensuring Directory service agent permissions and connector state are intact.

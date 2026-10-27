@@ -27,7 +27,7 @@ It deploys:
 - **Dedicated GCP Projects** per configurable customer environment (e.g. `non-prod`, `prod`, `dev`, `pilot`).
 - **Discovery Engine Service Agents** pre-created with Domain-Wide Delegation (DWD) authorization metadata.
 - **Location Identity Provider (IdP)** natively configured to `GSUITE` via `google_discovery_engine_acl_config`.
-- **Cloud Identity User Groups** and IAM search engine role bindings (`roles/discoveryengine.user`).
+- **Cloud Identity Admin & User Groups** with project-level admin (`roles/discoveryengine.admin`) and search engine end-user (`roles/discoveryengine.user`) IAM bindings.
 - **User Store with Auto-Registration** (`google_discovery_engine_user_store`).
 - **Federated Workspace Connectors** (`google_mail`, `google_calendar`, `google_drive`, `google_chat`) and **Google People Directory** (`people-directory-collection`).
 - **Atlassian Jira Data Connector** (`jira-federated-collection`) with multi-entity data stores (`project`, `issue`, `attachment`, `comment`, `worklog`) and optional Action/BAP integration.

@@ -8,6 +8,11 @@ output "project_numbers" {
   value       = { for k, v in google_project.projects : k => v.number }
 }
 
+output "admin_group_emails" {
+  description = "Emails of the provisioned Administrator Cloud Identity Groups per environment"
+  value       = { for k, v in google_cloud_identity_group.admins : k => v.group_key[0].id }
+}
+
 output "user_group_emails" {
   description = "Emails of the provisioned User Cloud Identity Groups per environment"
   value       = { for k, v in google_cloud_identity_group.users : k => v.group_key[0].id }
@@ -155,7 +160,7 @@ output "people_directory_checklist" {
       required_scopes = [
         "https://www.googleapis.com/auth/admin.directory.user.readonly",
         "https://www.googleapis.com/auth/admin.directory.orgunit.readonly",
-        "https://www.googleapis.com/auth/admin.directory.customschema.readonly",
+        "https://www.googleapis.com/auth/admin.directory.userschema.readonly",
         "https://www.googleapis.com/auth/directory.readonly"
       ]
       action_instructions = "Ensure Domain-Wide Delegation in Google Workspace Admin Console includes the required Directory API scopes for the service agent email."

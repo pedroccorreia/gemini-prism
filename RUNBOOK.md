@@ -128,7 +128,7 @@ stateDiagram-v2
 - [ ] `make plan-foundation` generated `.plans/foundation.tfplan` with 0 deletes/replaces
 - [ ] Foundation resources successfully applied across all environments
 - [ ] Discovery Engine service agent identities created (`service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com`)
-- [ ] Cloud Identity User Groups created (`<customer_id>-<env>-users@<domain>`)
+- [ ] Cloud Identity Admin & User Groups created (`<customer_id>-<env>-admins@<domain>` and `<customer_id>-<env>-users@<domain>`)
 - [ ] Location IdP configured to `GSUITE`
 
 ---
@@ -153,7 +153,7 @@ stateDiagram-v2
    - **Client ID**: The 21-digit numeric `client_id` (`uniqueId`) or `service_agent_email` from `make dwd-checklist`.
    - **OAuth Scopes**: Copy and paste the comma-separated scope string from `dwd-checklist`:
      ```
-     https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly,https://www.googleapis.com/auth/admin.directory.orgunit.readonly,https://www.googleapis.com/auth/admin.directory.customschema.readonly,https://www.googleapis.com/auth/directory.readonly,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly,https://www.googleapis.com/auth/chat.memberships.readonly
+     https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly,https://www.googleapis.com/auth/admin.directory.orgunit.readonly,https://www.googleapis.com/auth/admin.directory.userschema.readonly,https://www.googleapis.com/auth/directory.readonly,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly,https://www.googleapis.com/auth/chat.memberships.readonly
      ```
    - Click **Authorize**.
 4. In Workspace Admin Console under **Security > Access and data control > API controls > Google Cloud Core Services**, allow access for the environment GCP project IDs if prompted.
@@ -177,7 +177,7 @@ stateDiagram-v2
    - Supply the service key via environment variable: `export TF_VAR_hubspot_auth='{"service_key":"pat-ap1-..."}`.
 9. If Google People & Org Directory is planned (`"people_directory"` in `planned_connectors` or `enable_people_directory_connector = true`):
    - Run `make people-checklist` to view directory configuration, target entities, and sync parameters.
-   - People Directory reuses the DWD authorization above; ensure all Directory scopes (`user.readonly`, `orgunit.readonly`, `customschema.readonly`, `directory.readonly`) are authorized.
+   - People Directory reuses the DWD authorization above; ensure all Directory scopes (`user.readonly`, `orgunit.readonly`, `userschema.readonly`, `directory.readonly`) are authorized.
 10. Enable planned connectors via Stage 2 Enablement Helper:
    ```bash
    make enable-connectors
@@ -307,7 +307,10 @@ stateDiagram-v2
 **If it fails:**
 - Missing subscription IDs: Run `python3 scripts/allocate_licenses.py --discover`. If no active subscription exists on the Billing Account, `make status` exits with code 2; escalate with the **subscription** template.
 - Project number mismatch: Preflight assertions fail loudly. Verify that `config/license_allocations.json` project numbers match Cloud Resource Manager metadata.
-- Insufficient pool capacity: Billing account pool lacks free seats. Increase capacity in Google Cloud Console or reduce `seat_allocations`.
+- Insufficient pool capacity / Scaling seats:
+  1. When changing `seat_allocations` in `terraform.tfvars`, run `make plan-connectors && make apply-connectors` first so `config/license_allocations.json` is updated before running `make licenses-dryrun && make licenses`.
+  2. When increasing order seats via `cloudcommerceconsumerprocurement.googleapis.com/v1/billingAccounts/<BA>/orders/<ORDER_ID>:modify`, if `orderState` is `ORDER_STATE_PENDING_CANCELLATION`, first send `LINE_ITEM_CHANGE_TYPE_REVERT_CANCELLATION`, then send `LINE_ITEM_CHANGE_TYPE_UPDATE` with parameter `"name": "quantity"` and the existing `"offer"` URI. Wait **~5 minutes** (`LINE_ITEM_CHANGE_STATE_ACTIVATING`) for `billingAccountLicenseConfigs` `licenseCount` to update.
+  3. **Single-Project Auto-Routing:** If only 1 project exists in `licenseConfigDistributions` when the billing order quantity increases, Discovery Engine auto-routes the new seats into that project's `licenseConfig`. Call `:retractLicenseConfig` (`fullRetract: false, licenseCount: "<delta>"`) on that project to return the seats to the billing pool before distributing to a new project.
 
 **Checklist:**
 - [ ] `make licenses-dryrun` passed preflight project verification and capacity checks

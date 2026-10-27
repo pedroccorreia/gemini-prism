@@ -1009,7 +1009,7 @@ def print_hubspot_checklist():
                     "crm.objects.owners.read",
                     "tickets"
                 ],
-                "action_instructions": "Create a HubSpot Private App / Service Key at https://app.hubspot.com (Settings > Integrations > Private Apps) with CRM read scopes (crm.objects.contacts.read, crm.objects.companies.read, crm.objects.deals.read, crm.objects.owners.read, tickets), and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")."
+                "action_instructions": "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with CRM read scopes (crm.objects.contacts.read, crm.objects.companies.read, crm.objects.deals.read, crm.objects.owners.read, tickets), and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")."
             }
             for env in envs
         }

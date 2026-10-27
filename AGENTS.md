@@ -88,7 +88,7 @@ Set slack_config.instance_uri (and optional team_id) in terraform.tfvars; option
 ```text
 ACTION REQUIRED (HubSpot Admin): Configure HubSpot CRM authorization.
 Run `make hubspot-checklist` to view the required CRM read scopes and target entities (contacts, companies, deals, tickets).
-Create a Private App / Service Key in https://app.hubspot.com (pat-ap1-...) and export TF_VAR_hubspot_auth='{"oauth_access_token":"pat-ap1-..."}'.
+Create a Service Key in https://app.hubspot.com (Development > Keys > Service Keys) (pat-ap1-...)  TF_VAR_hubspot_auth='{"oauth_access_token":"pat-ap1-..."}'.
 ```
 
 ### `permissions`

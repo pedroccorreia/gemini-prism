@@ -34,6 +34,7 @@ It deploys:
 - **Atlassian Confluence Federated Data Connector** (`confluence-federated-collection`) with real-time federated spaces, pages, blogs, attachments, and comments, with automatic Jira shared tenant fallback.
 - **Slack Enterprise Data Connector** (`slack-collection`) with real-time federated `v3` search (`conversation`, `message`, `file`), remote MCP actions (`https://mcp.slack.com`), Google-managed or BYO OAuth 2.0, and channel inclusion/exclusion privacy filters.
 - **Unified Intranet Search App & Governed Assistant** (`google_discovery_engine_search_engine`, `google_discovery_engine_assistant`).
+- **Optional GEAP Agent Governance Foundation (`geap_governance_mode = "foundation"`)**: Selectable during Stage 0 onboarding (`make configure`) to designate each customer project as an **Agent Registry Governance Project**, enabling 16 underlying GEAP APIs (Service Usage, Agent Registry, Agent Identity, Vertex AI Runtime/Policy, Agent Gateway, IAP, Model Armor, App Topology & OpenTelemetry Observability), pre-warming 4 Primary P4SAs, binding 6 GEAP Admin/Visibility IAM roles to the environment Admin Group, and emitting a Day-2 agent handoff manifest (`make geap-checklist`) with zero deployed agents required on Day 1.
 - **Automated Seat Distribution & Verification** tooling via `Makefile`.
 - **Enterprise Connectors Roadmap:** Shipped Workspace, Jira, People Directory, Confluence, and Slack (`v1.4.0`), plus prioritized pipeline tracking [HubSpot CRM (P3)](docs/CONNECTORS_ROADMAP.md).
 
@@ -213,6 +214,9 @@ make configure         # Stage 0: Interactive connector onboarding wizard
 make check-inputs      # Stage 0: Audit inputs and missing variables
 make plan-foundation   # Stage 1: Generate foundation plan with safety guard
 make apply-foundation  # Stage 1: Apply foundation infrastructure
+make plan-governance   # GEAP Mode 2: Generate guarded GEAP governance-only plan
+make apply-governance  # GEAP Mode 2: Apply GEAP APIs, P4SAs & Admin Group IAM
+make geap-checklist    # GEAP Mode 2: Display Agent Registry & Day-2 handoff manifest
 make dwd-checklist        # Stage 2: Display Workspace DWD authorization details
 make jira-checklist       # Stage 2: Display Atlassian Jira authorization details
 make confluence-checklist # Stage 2: Display Atlassian Confluence authorization details

@@ -14,11 +14,33 @@ folder_id       = null # Optional: GCP Folder ID. If omitted or null, projects a
 org_id          = null # Optional: GCP Organization ID (used if folder_id is null/omitted).
 sa_email        = null # Optional: Custom provisioner service account email. If omitted or null, active Application Default Credentials (ADC) are used.
 
-# Discovery Engine & Workspace Connectors
-location             = "global"
-planned_connectors   = ["workspace"]
-enable_connectors    = false
-workspace_connectors = ["google_mail", "google_calendar", "google_drive", "google_chat"]
+# Discovery Engine, Workspace Connectors & Optional GEAP Agent Governance
+location                 = "global"
+planned_connectors       = ["workspace"]
+geap_governance_mode     = "none" # Set to "foundation" (or select in 'make configure') to enable GEAP Agent Registry, Gateway, Model Armor & Topology APIs
+enable_connectors        = false
+workspace_connectors     = ["google_mail", "google_calendar", "google_drive", "google_chat"]
+enable_workspace_actions = false # When true, enables Workspace Actions (FEDERATED + ACTIONS) with 3LO Web OAuth (export TF_VAR_workspace_oauth='{"client_id":"...","client_secret":"..."}') and BAP action catalog.
+
+# Optional: Customize collection_id, enable_actions, and enabled_actions per Workspace connector.
+# When enable_workspace_actions = true, credentials can be passed via TF_VAR_workspace_oauth or workspace_actions_config.
+workspace_actions_config = {
+  google_mail = {
+    enable_actions = false
+  }
+  google_calendar = {
+    enable_actions = false
+  }
+  google_drive = {
+    enable_actions = false
+  }
+  google_chat = {
+    enable_actions = false
+  }
+}
+
+# Optional: Supplemental Discovery Engine data store IDs per environment to preserve on the Search Engine
+extra_data_store_ids = {}
 
 # Gemini Enterprise Assistant Customization
 assistant_instructions = "You are an enterprise AI assistant helping employees find information across Google Workspace and internal knowledge bases. Provide accurate, helpful, and concise answers based on available enterprise data."

@@ -1336,6 +1336,7 @@ class TestStatusPhaseDetection(unittest.TestCase):
                     "team_id": "T01234567"
                 }
             })
+            from contextlib import redirect_stdout
             buf = io.StringIO()
             with redirect_stdout(buf):
                 status_module.print_slack_checklist()
@@ -2308,7 +2309,7 @@ class TestBranchAndIssueContracts(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertIn(
             proc.stdout.strip(),
-            ["Slack-Data-Connector", "feat/interactive-connector-onboarding", "main", ""]
+            ["Slack-Data-Connector", "feat/interactive-connector-onboarding", "feat/geap-governance-foundation", "main", ""]
         )
 
     def test_issue_05_specification_contract(self):
@@ -2387,6 +2388,9 @@ class TestDataScrubbing(unittest.TestCase):
         "altostrat",
         "pcorreia",
         "trusty-legend-405710",
+        "megaport",
+        "582656715922",
+        "813136816577",
         "affiliates-bootstrap",
         "0111AA-12FED7-0F6152",
         "ca1a2f23-797f-4cf7-ab6f-74fd5f3ca651",
@@ -2425,6 +2429,405 @@ class TestDataScrubbing(unittest.TestCase):
             len(leaks_found), 0,
             f"Sensitive patterns leaked in git-tracked files: {leaks_found}"
         )
+
+
+class TestGeapGovernanceFoundation(unittest.TestCase):
+    """Contract and unit tests for Optional GEAP Agent Governance Foundation (Mode 2: 'foundation')."""
+
+    EXPECTED_GEAP_APIS = [
+        "serviceusage.googleapis.com",
+        "agentregistry.googleapis.com",
+        "agentidentity.googleapis.com",
+        "aiplatform.googleapis.com",
+        "networkservices.googleapis.com",
+        "networksecurity.googleapis.com",
+        "iap.googleapis.com",
+        "modelarmor.googleapis.com",
+        "logging.googleapis.com",
+        "monitoring.googleapis.com",
+        "cloudtrace.googleapis.com",
+        "telemetry.googleapis.com",
+        "observability.googleapis.com",
+        "apphub.googleapis.com",
+        "cloudasset.googleapis.com",
+        "apptopology.googleapis.com",
+    ]
+
+    EXPECTED_ADMIN_ROLES = [
+        "roles/agentregistry.admin",
+        "roles/modelarmor.admin",
+        "roles/apptopology.viewer",
+        "roles/cloudtrace.user",
+        "roles/observability.viewAccessor",
+        "roles/iam.accessPolicyViewer",
+    ]
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_geap_terraform_contracts(self):
+        """variables.tf, terraform.tfvars.example, main.tf, and outputs.tf must satisfy Mode 2 GEAP contract."""
+        with open(os.path.join(REPO_ROOT, "variables.tf"), "r", encoding="utf-8") as f:
+            vars_content = f.read()
+        with open(os.path.join(REPO_ROOT, "terraform.tfvars.example"), "r", encoding="utf-8") as f:
+            example_content = f.read()
+        with open(os.path.join(REPO_ROOT, "main.tf"), "r", encoding="utf-8") as f:
+            main_content = f.read()
+        with open(os.path.join(REPO_ROOT, "outputs.tf"), "r", encoding="utf-8") as f:
+            outputs_content = f.read()
+
+        self.assertIn('variable "geap_governance_mode"', vars_content)
+        self.assertIn('contains(["none", "foundation"], var.geap_governance_mode)', vars_content)
+        self.assertTrue(
+            re.search(r'^\s*geap_governance_mode\s*=\s*"none"', example_content, re.MULTILINE),
+            "geap_governance_mode must default to 'none' in terraform.tfvars.example"
+        )
+
+        for api in self.EXPECTED_GEAP_APIS:
+            self.assertIn(f'"{api}"', main_content, f"Missing GEAP API {api} in main.tf")
+
+        for role in self.EXPECTED_ADMIN_ROLES:
+            self.assertIn(f'"{role}"', main_content, f"Missing GEAP Admin IAM role {role} in main.tf")
+
+        self.assertIn('resource "google_project_service_identity" "geap_sa"', main_content)
+        self.assertIn('resource "google_project_iam_member" "group_admins_geap"', main_content)
+        self.assertIn('output "geap_governance_checklist"', outputs_content)
+
+    def test_configure_mode_a_geap_question_contract(self):
+        """get_interactive_questions must expose single-select geap_governance_mode with Help Center docs_url."""
+        questions = configure_module.get_interactive_questions()
+        q = next((item for item in questions if item.get("id") == "geap_governance_mode"), None)
+        self.assertIsNotNone(q, "geap_governance_mode question missing from interactive_questions")
+        self.assertFalse(q.get("is_multi_select"))
+        self.assertEqual(q.get("default"), "none")
+
+        opts = q.get("options", [])
+        vals = [o["value"] for o in opts]
+        self.assertEqual(vals, ["none", "foundation"])
+        for o in opts:
+            self.assertTrue(o.get("docs_url", "").startswith("https://docs.cloud.google.com/"))
+
+    def test_configure_governance_mode_cli_and_validation(self):
+        """configure.py supports --governance-mode foundation and rejects invalid values with exit code 1."""
+        cmd_base = [sys.executable, os.path.join(REPO_ROOT, "scripts", "configure.py"), "--workdir", self.temp_dir.name]
+
+        proc_ok = subprocess.run(cmd_base + ["--governance-mode", "foundation"], capture_output=True, text=True)
+        self.assertEqual(proc_ok.returncode, 0)
+        parsed = configure_module.parse_tfvars(os.path.join(self.temp_dir.name, "terraform.tfvars"))
+        self.assertEqual(parsed.get("geap_governance_mode"), "foundation")
+
+        proc_bad = subprocess.run(cmd_base + ["--governance-mode", "option3_invalid"], capture_output=True, text=True)
+        self.assertEqual(proc_bad.returncode, 1)
+        self.assertIn("Invalid geap_governance_mode", proc_bad.stdout + proc_bad.stderr)
+
+    def test_configure_mode_b_interactive_governance_selection(self):
+        """Mode B non-TTY onboarding wizard prompts for connectors then GEAP governance mode ('1\\n2\\n' -> foundation)."""
+        cmd = [sys.executable, os.path.join(REPO_ROOT, "scripts", "configure.py"), "--workdir", self.temp_dir.name]
+        proc = subprocess.run(cmd, cwd=self.temp_dir.name, capture_output=True, text=True, input="1\n2\n")
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("Optional GEAP Agent Governance", proc.stdout)
+
+        parsed = configure_module.parse_tfvars(os.path.join(self.temp_dir.name, "terraform.tfvars"))
+        self.assertEqual(parsed.get("planned_connectors"), ["workspace"])
+        self.assertEqual(parsed.get("geap_governance_mode"), "foundation")
+
+    @patch("subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "terraform"))
+    def test_status_geap_validation_and_checklist(self, _mock_tf):
+        """status.py validates geap_governance_mode and emits fallback JSON for --geap-checklist."""
+        from contextlib import redirect_stdout
+
+        tfvars_path = os.path.join(self.temp_dir.name, "terraform.tfvars")
+        with open(tfvars_path, "w", encoding="utf-8") as f:
+            f.write('customer_id = "custcorp"\n')
+            f.write('customer_name = "Cust Corp"\n')
+            f.write('company_domain = "custcorp.com"\n')
+            f.write('workspace_customer_id = "C0998877"\n')
+            f.write('billing_account = "012345-678901-234567"\n')
+            f.write('environments = ["non-prod"]\n')
+            f.write('geap_governance_mode = "bad_mode"\n')
+
+        bad_status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            skip_auth_check=True,
+            skip_tools_check=True,
+        )
+        self.assertEqual(bad_status["exit_code"], 1)
+        self.assertIn("Invalid geap_governance_mode", bad_status["blockers"][0])
+
+        # Fix to 'foundation' and verify print_geap_checklist fallback
+        with open(tfvars_path, "w", encoding="utf-8") as f:
+            f.write('customer_id = "custcorp"\n')
+            f.write('company_domain = "custcorp.com"\n')
+            f.write('environments = ["non-prod"]\n')
+            f.write('geap_governance_mode = "foundation"\n')
+
+        prev_cwd = os.getcwd()
+        os.chdir(self.temp_dir.name)
+        try:
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                status_module.print_geap_checklist()
+            out = json.loads(buf.getvalue())
+            self.assertTrue(out["non-prod"]["enabled"])
+            self.assertEqual(out["non-prod"]["governance_mode"], "foundation")
+            self.assertEqual(len(out["non-prod"]["enabled_apis"]), 16)
+            self.assertEqual(len(out["non-prod"]["admin_roles"]), 6)
+        finally:
+            os.chdir(prev_cwd)
+
+    @patch("scripts.verify.make_request")
+    def test_verify_check_geap_governance(self, mock_make_request):
+        """verify.py check_geap_governance returns ACTIVE when 16/16 APIs enabled and Registry responds 200."""
+        def ok_side_effect(url, **kwargs):
+            if "serviceusage.googleapis.com" in url:
+                return {"services": [{"config": {"name": api}} for api in self.EXPECTED_GEAP_APIS]}
+            if "agentregistry.googleapis.com" in url:
+                return {"agents": [{"displayName": "Gemini Enterprise Core Assistant"}]}
+            return {}
+
+        mock_make_request.side_effect = ok_side_effect
+        res = verify_module.check_geap_governance("test-proj", "global", "mock-token")
+        self.assertEqual(len(res), 2)
+        self.assertEqual(res[0][0], "GEAP Foundation APIs")
+        self.assertEqual(res[0][1], "ACTIVE")
+        self.assertIn("16/16 enabled", res[0][2])
+        self.assertEqual(res[1][0], "GEAP Agent Registry")
+        self.assertEqual(res[1][1], "ACTIVE")
+        self.assertIn("Gemini Enterprise Core Assistant", res[1][2])
+
+        # Missing APIs case -> ERROR
+        def missing_side_effect(url, **kwargs):
+            if "serviceusage.googleapis.com" in url:
+                return {"services": [{"config": {"name": "agentregistry.googleapis.com"}}]}
+            if "agentregistry.googleapis.com" in url:
+                return {"_error": 403, "_message": "API disabled"}
+            return {}
+
+        mock_make_request.side_effect = missing_side_effect
+        res_err = verify_module.check_geap_governance("test-proj", "global", "mock-token")
+        self.assertEqual(res_err[0][1], "ERROR")
+        self.assertIn("1/16 enabled", res_err[0][2])
+        self.assertEqual(res_err[1][1], "ERROR")
+
+
+class TestWorkspaceActionsConfig(unittest.TestCase):
+    """Contract and unit tests for Google Workspace BAP Actions + 3LO OAuth architecture."""
+
+    def test_workspace_actions_terraform_contracts(self):
+        """variables.tf, main.tf, outputs.tf, and terraform.tfvars.example must enforce BAP actions, 3LO OAuth, and extra_data_store_ids."""
+        with open(os.path.join(REPO_ROOT, "variables.tf"), "r", encoding="utf-8") as f:
+            vars_content = f.read()
+        with open(os.path.join(REPO_ROOT, "main.tf"), "r", encoding="utf-8") as f:
+            main_content = f.read()
+        with open(os.path.join(REPO_ROOT, "outputs.tf"), "r", encoding="utf-8") as f:
+            outputs_content = f.read()
+        with open(os.path.join(REPO_ROOT, "terraform.tfvars.example"), "r", encoding="utf-8") as f:
+            example_content = f.read()
+
+        self.assertIn('variable "enable_workspace_actions"', vars_content)
+        self.assertIn('variable "workspace_oauth"', vars_content)
+        self.assertIn('variable "workspace_actions_config"', vars_content)
+        self.assertIn('variable "extra_data_store_ids"', vars_content)
+
+        self.assertIn("default_actions =", main_content)
+        self.assertIn("var.enable_workspace_actions", main_content)
+        self.assertIn("var.workspace_actions_config", main_content)
+        self.assertIn("lookup(var.extra_data_store_ids, each.key, [])", main_content)
+        self.assertIn("effective_workspace_client_id", main_content)
+        self.assertIn("effective_workspace_client_secret", main_content)
+        self.assertIn('["FEDERATED", "ACTIONS"]', main_content)
+        self.assertIn('{ "auth_type" = "OAUTH" }', main_content)
+
+        self.assertIn("workspace_actions =", outputs_content)
+        self.assertIn("output \"workspace_actions_checklist\"", outputs_content)
+        self.assertTrue(
+            re.search(r"^\s*enable_workspace_actions\s*=\s*false\b", example_content, re.MULTILINE),
+            "enable_workspace_actions must default to false in terraform.tfvars.example",
+        )
+        self.assertIn("workspace_actions_config =", example_content)
+        self.assertIn("extra_data_store_ids =", example_content)
+
+        # Verify default action catalog contains key BAP actions
+        for expected_action in ["create_calendar_event", "update_calendar_event", "send_message", "create_folder", "create_space"]:
+            self.assertIn(f'"{expected_action}"', main_content)
+        for internal_only_action in ["googledocs_update_doc", "googlesheets_update_spreadsheet", "googleslides_update_presentation"]:
+            self.assertNotIn(f'"{internal_only_action}"', main_content)
+
+        # Verify people.googleapis.com remains enabled in base_services
+        self.assertIn('"people.googleapis.com"', main_content)
+
+    def test_parse_tfvars_nested_workspace_actions_config_and_extra_data_stores(self):
+        """parse_tfvars in status.py and configure.py must parse nested workspace_actions_config and extra_data_store_ids cleanly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tfvars_path = os.path.join(tmpdir, "terraform.tfvars")
+            with open(tfvars_path, "w", encoding="utf-8") as f:
+                f.write(
+                    'customer_id = "testcust"\n'
+                    'enable_connectors = true\n'
+                    'workspace_actions_config = {\n'
+                    '  google_mail = {\n'
+                    '    enable_actions = false\n'
+                    '  }\n'
+                    '  google_calendar = {\n'
+                    '    collection_id = "calendar-actions-collection"\n'
+                    '    enable_actions = true\n'
+                    '    enabled_actions = ["create_calendar_event", "update_calendar_event"]\n'
+                    '  }\n'
+                    '}\n'
+                    'extra_data_store_ids = {\n'
+                    '  non-prod = ["ds-demo-bq", "ds-demo-gcs"]\n'
+                    '}\n'
+                    'enable_jira_connector = false\n'
+                )
+
+            for mod in (status_module, configure_module):
+                parsed = mod.parse_tfvars(tfvars_path)
+                self.assertEqual(parsed.get("customer_id"), "testcust")
+                self.assertTrue(parsed.get("enable_connectors"))
+                self.assertFalse(parsed.get("enable_jira_connector"))
+                wcfg = parsed.get("workspace_actions_config", {})
+                self.assertFalse(wcfg.get("google_mail", {}).get("enable_actions"))
+                self.assertEqual(wcfg.get("google_calendar", {}).get("collection_id"), "calendar-actions-collection")
+                self.assertTrue(wcfg.get("google_calendar", {}).get("enable_actions"))
+                self.assertEqual(wcfg.get("google_calendar", {}).get("enabled_actions"), ["create_calendar_event", "update_calendar_event"])
+                extra_ds = parsed.get("extra_data_store_ids", {})
+                self.assertEqual(extra_ds.get("non-prod"), ["ds-demo-bq", "ds-demo-gcs"])
+
+    @patch("scripts.verify.make_request")
+    def test_verify_workspace_connector_actions_diagnostics(self, mock_make_request):
+        """verify.py check_data_connectors must validate Workspace BAP actions, ActionState, and ActionConfigured."""
+        connector_payload = {}
+
+        def side_effect(url, **kwargs):
+            if url.endswith("/collections"):
+                return {
+                    "collections": [
+                        {"name": "projects/test-proj/locations/global/collections/calendar-collection"}
+                    ]
+                }
+            elif url.endswith("/dataConnector"):
+                return connector_payload
+            return {}
+
+        mock_make_request.side_effect = side_effect
+
+        # Case 1: Clean FEDERATED-only connector -> ACTIVE
+        connector_payload = {
+            "name": "projects/test-proj/locations/global/collections/calendar-collection/dataConnector",
+            "dataSource": "google_calendar",
+            "state": "ACTIVE",
+            "connectorModes": ["FEDERATED"],
+            "entities": [{"entityName": "google_calendar"}],
+        }
+        res_fed = verify_module.check_data_connectors("test-proj", "global", "mock-token")
+        self.assertEqual(res_fed[0][1], "ACTIVE")
+        self.assertIn("Modes: FEDERATED", res_fed[0][2])
+
+        # Case 2: Connector with ACTIONS enabled but isActionConfigured == False -> WARN
+        connector_payload = {
+            "name": "projects/test-proj/locations/global/collections/calendar-actions-collection/dataConnector",
+            "dataSource": "google_calendar",
+            "state": "ACTIVE",
+            "actionState": "ACTIVE",
+            "connectorModes": ["FEDERATED", "ACTIONS"],
+            "actionConfig": {"createBapConnection": True, "isActionConfigured": False},
+            "bapConfig": {"enabledActions": ["create_calendar_event", "update_calendar_event"]},
+            "entities": [{"entityName": "google_calendar"}],
+        }
+        res_pending = verify_module.check_data_connectors("test-proj", "global", "mock-token")
+        self.assertEqual(res_pending[0][1], "WARN")
+        self.assertIn("ActionConfigured: False", res_pending[0][2])
+        self.assertIn("ActionsPending:", res_pending[0][2])
+
+        # Case 3: Connector with ACTIONS enabled, BAP actions, ActionState ACTIVE, and isActionConfigured True -> ACTIVE
+        connector_payload = {
+            "name": "projects/test-proj/locations/global/collections/calendar-actions-collection/dataConnector",
+            "dataSource": "google_calendar",
+            "state": "ACTIVE",
+            "actionState": "ACTIVE",
+            "connectorModes": ["FEDERATED", "ACTIONS"],
+            "actionConfig": {"isActionConfigured": True, "createBapConnection": True},
+            "bapConfig": {
+                "supportedConnectorModes": ["ACTIONS"],
+                "enabledActions": ["create_calendar_event", "update_calendar_event"],
+            },
+            "entities": [{"entityName": "google_calendar"}],
+        }
+        res_ok = verify_module.check_data_connectors("test-proj", "global", "mock-token")
+        self.assertEqual(res_ok[0][1], "ACTIVE")
+        self.assertIn("Modes: FEDERATED,ACTIONS", res_ok[0][2])
+        self.assertIn("ActionConfigured: True", res_ok[0][2])
+        self.assertIn("Actions: 2", res_ok[0][2])
+
+    def test_configure_and_status_workspace_actions_gate(self):
+        """Workspace actions with 3LO OAuth validation in status.py and configure.py."""
+        questions = configure_module.get_interactive_questions()
+        q_ws = next((item for item in questions if item.get("id") == "enable_workspace_actions"), None)
+        self.assertIsNotNone(q_ws, "enable_workspace_actions question missing from interactive_questions")
+        self.assertFalse(q_ws.get("is_multi_select"))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tfvars_path = os.path.join(tmpdir, "terraform.tfvars")
+            state_path = os.path.join(tmpdir, "terraform.tfstate")
+            with open(state_path, "w", encoding="utf-8") as sf:
+                json.dump({
+                    "version": 4,
+                    "resources": [],
+                    "outputs": {"project_ids": {"value": {"non-prod": "testcust-non-prod"}}},
+                }, sf)
+
+            with open(tfvars_path, "w", encoding="utf-8") as f:
+                f.write(
+                    'customer_id = "testcust"\n'
+                    'customer_name = "Test Cust"\n'
+                    'company_domain = "testcust.org"\n'
+                    'workspace_customer_id = "C09999999"\n'
+                    'billing_account = "012345-6789AB-CDEF01"\n'
+                    'environments = ["non-prod"]\n'
+                    'planned_connectors = ["workspace"]\n'
+                    'enable_connectors = true\n'
+                    'enable_workspace_actions = true\n'
+                )
+
+            # When TF_VAR_workspace_oauth is missing, status.py reaches gate 2 with workspace_actions handoff
+            old_oauth = os.environ.pop("TF_VAR_workspace_oauth", None)
+            old_auth = os.environ.pop("TF_VAR_workspace_auth", None)
+            try:
+                st_gate = status_module.determine_status(
+                    workdir=tmpdir,
+                    tfvars_path=tfvars_path,
+                    state_path=state_path,
+                    skip_auth_check=True,
+                    skip_tools_check=True,
+                )
+                self.assertEqual(st_gate["phase"], 2)
+                self.assertEqual(st_gate["exit_code"], 2)
+                self.assertEqual(st_gate["handoff_template"], "workspace_actions")
+
+                # When credentials are provided, status proceeds to phase 3
+                os.environ["TF_VAR_workspace_oauth"] = '{"client_id":"cid","client_secret":"csec"}'
+                st_ok = status_module.determine_status(
+                    workdir=tmpdir,
+                    tfvars_path=tfvars_path,
+                    state_path=state_path,
+                    skip_auth_check=True,
+                    skip_tools_check=True,
+                )
+                self.assertEqual(st_ok["phase"], 3)
+                self.assertEqual(st_ok["exit_code"], 0)
+            finally:
+                if old_oauth is not None:
+                    os.environ["TF_VAR_workspace_oauth"] = old_oauth
+                else:
+                    os.environ.pop("TF_VAR_workspace_oauth", None)
+                if old_auth is not None:
+                    os.environ["TF_VAR_workspace_auth"] = old_auth
+
 
 
 if __name__ == "__main__":

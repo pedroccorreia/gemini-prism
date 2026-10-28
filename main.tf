@@ -21,21 +21,45 @@ locals {
       display_name = "Gmail"
       service      = "gmail.googleapis.com"
       collection   = "gmail-collection"
+      default_actions = [
+        "send_message",
+        "reply_to_mail_message",
+        "create_label",
+        "add_label_to_message",
+        "download_attachment"
+      ]
     }
     "google_calendar" = {
       display_name = "Google Calendar"
       service      = "calendar-json.googleapis.com"
       collection   = "calendar-collection"
+      default_actions = [
+        "create_calendar_event",
+        "update_calendar_event"
+      ]
     }
     "google_drive" = {
       display_name = "Google Drive"
       service      = "drive.googleapis.com"
       collection   = "drive-collection"
+      default_actions = [
+        "create_folder",
+        "copy_file_or_folder",
+        "upload_file",
+        "update_file",
+        "download_file"
+      ]
     }
     "google_chat" = {
       display_name = "Google Chat"
       service      = "chat.googleapis.com"
       collection   = "chat-collection"
+      default_actions = [
+        "create_space",
+        "reply_to_thread",
+        "add_member_to_space",
+        "send_message"
+      ]
     }
   }
 
@@ -46,20 +70,95 @@ locals {
     "admin.googleapis.com",
     "gmail.googleapis.com",
     "calendar-json.googleapis.com",
+    "people.googleapis.com",
     "drive.googleapis.com",
     "chat.googleapis.com",
     "iamcredentials.googleapis.com",
     "iam.googleapis.com"
   ]
 
+  # Optional GEAP Agent Governance Foundation APIs (Mode 2: "foundation")
+  geap_governance_services = [
+    # 0. Service Usage Self-Inspection
+    "serviceusage.googleapis.com",
+    # 1. Agent Registry, Runtime & Identity Core
+    "agentregistry.googleapis.com",
+    "agentidentity.googleapis.com",
+    "aiplatform.googleapis.com",
+    # 2. Agent Gateway, Access Policy & Content Safety
+    "networkservices.googleapis.com",
+    "networksecurity.googleapis.com",
+    "iap.googleapis.com",
+    "modelarmor.googleapis.com",
+    # 3. Agent Topology & OpenTelemetry Observability
+    "logging.googleapis.com",
+    "monitoring.googleapis.com",
+    "cloudtrace.googleapis.com",
+    "telemetry.googleapis.com",
+    "observability.googleapis.com",
+    "apphub.googleapis.com",
+    "cloudasset.googleapis.com",
+    "apptopology.googleapis.com"
+  ]
+
+  effective_services = distinct(concat(
+    local.base_services,
+    var.geap_governance_mode == "foundation" ? local.geap_governance_services : []
+  ))
+
   project_services = merge([
     for env_key, env_val in local.environments : {
-      for svc in local.base_services : "${env_key}-${svc}" => {
+      for svc in local.effective_services : "${env_key}-${svc}" => {
         project_id = google_project.projects[env_key].project_id
         service    = svc
       }
     }
   ]...)
+
+  geap_service_agent_apis = [
+    "agentregistry.googleapis.com",
+    "aiplatform.googleapis.com",
+    "iap.googleapis.com",
+    "modelarmor.googleapis.com"
+  ]
+
+  geap_service_identities = var.geap_governance_mode == "foundation" ? {
+    for pair in setproduct(keys(local.environments), local.geap_service_agent_apis) :
+    "${pair[0]}-${pair[1]}" => {
+      env_key    = pair[0]
+      project_id = google_project.projects[pair[0]].project_id
+      service    = pair[1]
+    }
+  } : {}
+
+  geap_admin_roles = [
+    "roles/agentregistry.admin",
+    "roles/modelarmor.admin",
+    "roles/apptopology.viewer",
+    "roles/cloudtrace.user",
+    "roles/observability.viewAccessor",
+    "roles/iam.accessPolicyViewer"
+  ]
+
+  geap_admin_iam_bindings = var.geap_governance_mode == "foundation" ? {
+    for pair in setproduct(keys(local.environments), local.geap_admin_roles) :
+    "${pair[0]}-${pair[1]}" => {
+      env_key    = pair[0]
+      project_id = google_project.projects[pair[0]].project_id
+      role       = pair[1]
+    }
+  } : {}
+
+  # Workspace OAuth 2.0 Web Application credentials for Actions
+  effective_workspace_client_id = try(coalesce(
+    trimspace(nonsensitive(try(var.workspace_oauth.client_id, ""))),
+    trimspace(nonsensitive(try(var.workspace_auth.client_id, "")))
+  ), "")
+
+  effective_workspace_client_secret = try(coalesce(
+    trimspace(nonsensitive(try(var.workspace_oauth.client_secret, ""))),
+    trimspace(nonsensitive(try(var.workspace_auth.client_secret, "")))
+  ), "")
 
   # Workspace connectors per environment (when enabled)
   workspace_environment_connectors = var.enable_connectors ? {
@@ -69,16 +168,20 @@ locals {
       connector           = pair[1]
       data_source         = pair[1]
       data_source_version = null
-      display_name        = lookup(local.connector_meta, pair[1], { display_name = title(replace(pair[1], "_", " ")), service = "", collection = "${replace(pair[1], "_", "-")}-collection" }).display_name
-      collection_id       = lookup(local.connector_meta, pair[1], { display_name = "", service = "", collection = "${replace(pair[1], "_", "-")}-collection" }).collection
-      project_id          = google_project.projects[pair[0]].project_id
+      display_name        = lookup(local.connector_meta, pair[1], { display_name = title(replace(pair[1], "_", " ")), service = "", collection = "${replace(pair[1], "_", "-")}-collection", default_actions = [] }).display_name
+      collection_id = try(coalesce(trimspace(var.workspace_actions_config[pair[1]].collection_id)), "") != "" ? trimspace(var.workspace_actions_config[pair[1]].collection_id) : (
+        (var.enable_workspace_actions || try(coalesce(var.workspace_actions_config[pair[1]].enable_actions, false), false))
+        ? "${replace(pair[1], "_", "-")}-actions-collection"
+        : lookup(local.connector_meta, pair[1], { display_name = "", service = "", collection = "${replace(pair[1], "_", "-")}-collection", default_actions = [] }).collection
+      )
+      project_id = google_project.projects[pair[0]].project_id
       entities = [
         {
           entity_name = pair[1]
           params      = null
         }
       ]
-      connector_modes              = ["FEDERATED"]
+      connector_modes              = (var.enable_workspace_actions || try(coalesce(var.workspace_actions_config[pair[1]].enable_actions, false), false)) ? ["FEDERATED", "ACTIONS"] : ["FEDERATED"]
       sync_mode                    = null
       refresh_interval             = "0s"
       incremental_refresh_interval = null
@@ -86,10 +189,19 @@ locals {
       auto_run_disabled            = null
       incremental_sync_disabled    = null
       params                       = {}
-      action_params                = {}
-      enable_actions               = false
-      enabled_actions              = []
-      instance_uri                 = ""
+      action_params = (var.enable_workspace_actions || try(coalesce(var.workspace_actions_config[pair[1]].enable_actions, false), false)) ? merge(
+        { "auth_type" = "OAUTH" },
+        local.effective_workspace_client_id != "" ? { "client_id" = local.effective_workspace_client_id } : {},
+        local.effective_workspace_client_secret != "" ? { "client_secret" = local.effective_workspace_client_secret } : {},
+        try(coalesce(var.workspace_actions_config[pair[1]].action_params, {}), {})
+      ) : {}
+      enable_actions = (var.enable_workspace_actions || try(coalesce(var.workspace_actions_config[pair[1]].enable_actions, false), false))
+      enabled_actions = (var.enable_workspace_actions || try(coalesce(var.workspace_actions_config[pair[1]].enable_actions, false), false)) ? (
+        length(try(coalesce(var.workspace_actions_config[pair[1]].enabled_actions, []), [])) > 0
+        ? var.workspace_actions_config[pair[1]].enabled_actions
+        : lookup(local.connector_meta, pair[1], { display_name = "", service = "", collection = "", default_actions = [] }).default_actions
+      ) : []
+      instance_uri = ""
     }
   } : {}
 
@@ -530,6 +642,16 @@ resource "google_project_service_identity" "discoveryengine_sa" {
   depends_on = [google_project_service.services]
 }
 
+# 1.6 Pre-create GEAP Governance Primary Service Agent Identities (when geap_governance_mode == "foundation")
+resource "google_project_service_identity" "geap_sa" {
+  provider = google-beta
+  for_each = local.geap_service_identities
+  project  = each.value.project_id
+  service  = each.value.service
+
+  depends_on = [google_project_service.services]
+}
+
 # Service Account Token Creator role for Discovery Engine Service Agent (required by native_cloud_identity)
 resource "google_project_iam_member" "discoveryengine_sa_token_creator" {
   for_each = var.enable_people_directory_connector ? local.environments : {}
@@ -606,6 +728,19 @@ resource "google_project_iam_member" "group_admins" {
   project  = google_project.projects[each.key].project_id
   role     = "roles/discoveryengine.admin"
   member   = "group:${google_cloud_identity_group.admins[each.key].group_key[0].id}"
+
+  depends_on = [
+    google_project_service.services,
+    google_cloud_identity_group.admins
+  ]
+}
+
+# Grant GEAP Governance & Topology Roles to Customer Environment Admin Groups (when geap_governance_mode == "foundation")
+resource "google_project_iam_member" "group_admins_geap" {
+  for_each = local.geap_admin_iam_bindings
+  project  = each.value.project_id
+  role     = each.value.role
+  member   = "group:${google_cloud_identity_group.admins[each.value.env_key].group_key[0].id}"
 
   depends_on = [
     google_project_service.services,
@@ -694,6 +829,10 @@ resource "google_discovery_engine_data_connector" "connectors" {
     }
   }
 
+  lifecycle {
+    create_before_destroy = true
+  }
+
   depends_on = [
     google_project_service.services,
     google_discovery_engine_acl_config.idp,
@@ -712,18 +851,27 @@ resource "google_discovery_engine_search_engine" "engines" {
   industry_vertical = "GENERIC"
   app_type          = "APP_TYPE_INTRANET"
 
-  data_store_ids = flatten([
-    for conn_key, conn in local.environment_connectors : [
-      for entity in google_discovery_engine_data_connector.connectors[conn_key].entities :
-      basename(entity.data_store)
-      if try(trimspace(entity.data_store), "") != ""
-    ]
-    if conn.env_key == each.key
-  ])
+  data_store_ids = distinct(concat(
+    flatten([
+      for conn_key, conn in local.environment_connectors : [
+        for entity in google_discovery_engine_data_connector.connectors[conn_key].entities :
+        basename(entity.data_store)
+        if try(trimspace(entity.data_store), "") != ""
+      ]
+      if conn.env_key == each.key
+    ]),
+    lookup(var.extra_data_store_ids, each.key, [])
+  ))
 
   search_engine_config {
     search_tier    = "SEARCH_TIER_STANDARD"
     search_add_ons = ["SEARCH_ADD_ON_LLM"]
+  }
+
+  lifecycle {
+    ignore_changes = [
+      search_engine_config[0].search_tier,
+    ]
   }
 
   depends_on = [
@@ -758,6 +906,12 @@ resource "google_discovery_engine_assistant" "default" {
     system_instruction {
       additional_system_instruction = var.assistant_instructions
     }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      customer_policy,
+    ]
   }
 
   depends_on = [

@@ -1,4 +1,4 @@
-.PHONY: status configure check-inputs enable-connectors plan-foundation apply-foundation plan-governance apply-governance dwd-checklist workspace-actions-checklist jira-checklist confluence-checklist slack-checklist people-checklist geap-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify test help
+.PHONY: status configure check-inputs enable-connectors plan-foundation apply-foundation plan-governance apply-governance dwd-checklist workspace-actions-checklist jira-checklist confluence-checklist slack-checklist people-checklist hubspot-checklist geap-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify test help
 
 WAIT ?= 15m
 export GOOGLE_OAUTH_ACCESS_TOKEN ?= $(shell gcloud auth print-access-token 2>/dev/null)
@@ -7,7 +7,7 @@ help:
 	@echo ""
 	@echo "  ═══╗  ╱╲"
 	@echo "  ═══╬─╱  ╲──✦   P R I S M   │ Gemini Enterprise Provisioning Engine"
-	@echo "  ═══╝╱____╲     v1.0        │ Workspace · Jira · Confluence · Slack · Identity · Licensing"
+	@echo "  ═══╝╱____╲     v1.0        │ Workspace · Jira · Confluence · Slack · HubSpot · Identity · Licensing"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  status                      - Check deployment status & live phase"
@@ -22,6 +22,7 @@ help:
 	@echo "  confluence-checklist        - Print Atlassian Confluence connector onboarding checklist"
 	@echo "  slack-checklist             - Print Slack Enterprise connector onboarding checklist"
 	@echo "  people-checklist            - Print Google People Directory connector onboarding checklist"
+	@echo "  hubspot-checklist           - Print HubSpot CRM connector onboarding checklist"
 	@echo "  geap-checklist              - Print GEAP Agent Governance Foundation readiness & Day-2 handoff manifest"
 	@echo "  plan-governance             - Generate guarded GEAP Governance Foundation plan (existing deployments)"
 	@echo "  apply-governance            - Apply guarded GEAP Governance Foundation plan (0 deletes/replaces)"
@@ -47,7 +48,7 @@ enable-connectors:
 
 plan-foundation:
 	@mkdir -p .plans
-	terraform plan -input=false -var="enable_connectors=false" -var="enable_jira_connector=false" -var="enable_confluence_connector=false" -var="enable_slack_connector=false" -var="enable_people_directory_connector=false" -out=.plans/foundation.tfplan
+	terraform plan -input=false -var="enable_connectors=false" -var="enable_jira_connector=false" -var="enable_confluence_connector=false" -var="enable_slack_connector=false" -var="enable_people_directory_connector=false" -var="enable_hubspot_connector=false" -out=.plans/foundation.tfplan
 	python3 scripts/plan_guard.py .plans/foundation.tfplan
 
 apply-foundation:
@@ -72,6 +73,9 @@ slack-checklist:
 people-checklist:
 	@python3 scripts/status.py --people-directory-checklist
 
+hubspot-checklist:
+	@python3 scripts/status.py --hubspot-checklist
+
 geap-checklist:
 	@python3 scripts/status.py --geap-checklist
 
@@ -86,12 +90,12 @@ apply-governance:
 
 plan-connectors:
 	@mkdir -p .plans
-	set -a; [ -f .env.jira ] && . ./.env.jira; [ -f .env.workspace ] && . ./.env.workspace; set +a; terraform plan -input=false -out=.plans/connectors.tfplan
+	set -a; [ -f .env.jira ] && . ./.env.jira; [ -f .env.workspace ] && . ./.env.workspace; [ -f .env.hubspot ] && . ./.env.hubspot; set +a; terraform plan -input=false -out=.plans/connectors.tfplan
 	python3 scripts/plan_guard.py .plans/connectors.tfplan
 
 apply-connectors:
 	python3 scripts/plan_guard.py .plans/connectors.tfplan
-	set -a; [ -f .env.jira ] && . ./.env.jira; [ -f .env.workspace ] && . ./.env.workspace; set +a; terraform apply -input=false .plans/connectors.tfplan && python3 scripts/configure.py --sync-workspace-actions
+	set -a; [ -f .env.jira ] && . ./.env.jira; [ -f .env.workspace ] && . ./.env.workspace; [ -f .env.hubspot ] && . ./.env.hubspot; set +a; terraform apply -input=false .plans/connectors.tfplan && python3 scripts/configure.py --sync-workspace-actions
 
 licenses-dryrun:
 	python3 scripts/allocate_licenses.py --distribute --dry-run

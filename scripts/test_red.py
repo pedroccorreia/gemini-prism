@@ -1348,6 +1348,191 @@ class TestStatusPhaseDetection(unittest.TestCase):
         finally:
             os.chdir(prev_cwd)
 
+    def test_status_phase_2_hubspot_rejects_data_ingestion_mode(self):
+        """enable_hubspot_connector=true with DATA_INGESTION mode must trigger Stage 2 hubspot gate (exit 2)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod"],
+            "enable_connectors": True,
+            "enable_hubspot_connector": True,
+            "hubspot_config": {
+                "instance_uri": "https://api.hubapi.com",
+                "connector_modes": ["DATA_INGESTION"]
+            }
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 2)
+        self.assertEqual(status["phase"], 2)
+        self.assertEqual(status["handoff_template"], "hubspot")
+        self.assertIn("FEDERATED", status["blockers"][0])
+
+    def test_status_phase_2_hubspot_only_gate_when_disabled(self):
+        """Planned hubspot connector when enable_hubspot_connector=false must trigger hubspot gate (exit 2)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod", "prod"],
+            "planned_connectors": ["hubspot"],
+            "enable_connectors": False,
+            "enable_hubspot_connector": False
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod", "prod": "testcust-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 2)
+        self.assertEqual(status["phase"], 2)
+        self.assertEqual(status["handoff_template"], "hubspot")
+        self.assertIn("hubspot", status["blockers"][0].lower())
+
+    def test_status_phase_3_ready_hubspot_only(self):
+        """HubSpot-only deployment (enable_connectors=false, enable_hubspot_connector=true) must advance to Phase 3 (exit 0)."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["non-prod", "prod"],
+            "enable_connectors": False,
+            "enable_hubspot_connector": True,
+            "hubspot_config": {
+                "instance_uri": "https://api.hubapi.com",
+                "data_source": "hubspot",
+                "connector_modes": ["FEDERATED"]
+            }
+        })
+        state_path = self._create_state(project_ids={"non-prod": "testcust-non-prod", "prod": "testcust-prod"})
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 0)
+        self.assertEqual(status["phase"], 3)
+        self.assertEqual(status["phase_name"], "connectors_and_engines_apply")
+
+    def test_status_phase_3_stays_when_hubspot_connector_missing_from_state(self):
+        """When workspace connectors exist in state but hubspot connector is missing, status must stay in Phase 3."""
+        tfvars_path = self._create_tfvars({
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "environments": ["prod"],
+            "enable_connectors": True,
+            "enable_hubspot_connector": True,
+            "hubspot_config": {
+                "instance_uri": "https://api.hubapi.com",
+                "data_source": "hubspot"
+            }
+        })
+        state_path = self._create_state(
+            project_ids={"prod": "testcust-prod"},
+            search_engines={"prod": "projects/123/locations/global/collections/default_collection/engines/engine-1"},
+            assistants={"prod": "projects/123/locations/global/collections/default_collection/engines/engine-1/assistants/default_assistant"}
+        )
+        with open(state_path, "r", encoding="utf-8") as f:
+            st = json.load(f)
+        st["outputs"]["data_connector_names"] = {
+            "value": {
+                "prod-google_mail": "projects/123/locations/global/collections/mail-col/dataConnector"
+            }
+        }
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+
+        status = status_module.determine_status(
+            workdir=self.temp_dir.name,
+            tfvars_path=tfvars_path,
+            state_path=state_path,
+            skip_auth_check=True
+        )
+        self.assertEqual(status["exit_code"], 0)
+        self.assertEqual(status["phase"], 3)
+        self.assertEqual(status["phase_name"], "connectors_and_engines_apply")
+
+    def test_parse_tfvars_preserves_nested_hubspot_config_types(self):
+        """parse_tfvars must parse booleans, lists, and strings inside hubspot_config without clobbering."""
+        raw_tfvars = {
+            "customer_id": "testcust",
+            "customer_name": "Test Customer",
+            "company_domain": "testcust.org",
+            "workspace_customer_id": "C09999999",
+            "billing_account": "012345-6789AB-CDEF01",
+            "enable_hubspot_connector": True,
+            "hubspot_auth_type": "SERVICE_KEY",
+            "hubspot_config": {
+                "instance_uri": "https://api.hubapi.com",
+                "portal_id": "12345678",
+                "collection_id": "hubspot-federated-collection",
+                "connector_modes": ["FEDERATED"],
+                "static_ip_enabled": False,
+                "entities": ["contacts", "companies", "deals", "tickets"]
+            }
+        }
+        tfvars_path = self._create_tfvars(raw_tfvars)
+        parsed = status_module.parse_tfvars(tfvars_path)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.get("hubspot_auth_type"), "SERVICE_KEY")
+        cfg = parsed.get("hubspot_config", {})
+        self.assertEqual(cfg.get("instance_uri"), "https://api.hubapi.com")
+        self.assertEqual(cfg.get("portal_id"), "12345678")
+        self.assertEqual(cfg.get("collection_id"), "hubspot-federated-collection")
+        self.assertEqual(cfg.get("connector_modes"), ["FEDERATED"])
+        self.assertIs(cfg.get("static_ip_enabled"), False)
+        self.assertEqual(cfg.get("entities"), ["contacts", "companies", "deals", "tickets"])
+
+    @patch("subprocess.check_output", side_effect=subprocess.CalledProcessError(1, "terraform"))
+    def test_print_hubspot_checklist_fallback_defaults(self, _mock_tf):
+        """print_hubspot_checklist fallback must emit SERVICE_KEY auth_type, FEDERATED mode, and CRM entities."""
+        import io
+        from contextlib import redirect_stdout
+
+        prev_cwd = os.getcwd()
+        os.chdir(self.temp_dir.name)
+        try:
+            self._create_tfvars({
+                "customer_id": "testcust",
+                "environments": ["prod"],
+                "hubspot_config": {
+                    "instance_uri": "https://api.hubapi.com",
+                    "portal_id": "12345678"
+                }
+            })
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                status_module.print_hubspot_checklist()
+            out = json.loads(buf.getvalue())
+            self.assertIn("prod", out)
+            self.assertEqual(out["prod"]["auth_type"], "SERVICE_KEY")
+            self.assertEqual(out["prod"]["data_source"], "hubspot")
+            self.assertEqual(out["prod"]["connector_modes"], ["FEDERATED"])
+            self.assertEqual(out["prod"]["entities"], ["contacts", "companies", "deals", "tickets"])
+        finally:
+            os.chdir(prev_cwd)
+
 
 class TestVerifyConnectors(unittest.TestCase):
     """Test cases for verify.py multi-entity and third-party data connector inspection."""
@@ -1552,6 +1737,43 @@ class TestVerifyConnectors(unittest.TestCase):
         self.assertIn("ActionState: ACTIVE", details)
 
     @patch("scripts.verify.make_request")
+    def test_verify_check_data_connectors_multi_entity_hubspot(self, mock_make_request):
+        """check_data_connectors must inspect HubSpot CRM federated connector and surface entities count."""
+        def side_effect(url, **kwargs):
+            if url.endswith("/collections"):
+                return {
+                    "collections": [
+                        {"name": "projects/test-proj/locations/global/collections/hubspot-federated-collection"}
+                    ]
+                }
+            elif url.endswith("/dataConnector"):
+                return {
+                    "name": "projects/test-proj/locations/global/collections/hubspot-federated-collection/dataConnector",
+                    "dataSource": "hubspot",
+                    "state": "STATE_ACTIVE",
+                    "realtimeState": "STATE_ACTIVE",
+                    "connectorModes": ["FEDERATED"],
+                    "entities": [
+                        {"entityName": "contacts"},
+                        {"entityName": "companies"},
+                        {"entityName": "deals"},
+                        {"entityName": "tickets"}
+                    ]
+                }
+            return {}
+
+        mock_make_request.side_effect = side_effect
+
+        results = verify_module.check_data_connectors("test-proj", "global", "mock-token")
+        self.assertEqual(len(results), 1)
+        component, status, details = results[0]
+        self.assertIn("Connector (hubspot)", component)
+        self.assertEqual(status, "STATE_ACTIVE")
+        self.assertIn("Modes: FEDERATED", details)
+        self.assertIn("Entities: 4", details)
+        self.assertIn("Realtime: STATE_ACTIVE", details)
+
+    @patch("scripts.verify.make_request")
     def test_verify_check_data_connectors_people_directory(self, mock_make_request):
         """check_data_connectors must inspect Google People Directory connector and surface entity counts."""
         def side_effect(url, **kwargs):
@@ -1618,7 +1840,7 @@ class TestDocumentationContracts(unittest.TestCase):
                 )
 
     def test_agents_md_contract(self):
-        """AGENTS.md must exist, be <= 150 lines, and contain all 9 hand-off templates."""
+        """AGENTS.md must exist, be <= 150 lines, and contain all 10 hand-off templates."""
         agents_path = os.path.join(REPO_ROOT, "AGENTS.md")
         self.assertTrue(os.path.exists(agents_path), "AGENTS.md must exist")
 
@@ -1629,7 +1851,7 @@ class TestDocumentationContracts(unittest.TestCase):
 
         content = "".join(lines)
         required_templates = [
-            "`inputs`", "`dwd`", "`jira`", "`confluence`", "`slack`",
+            "`inputs`", "`dwd`", "`jira`", "`confluence`", "`slack`", "`hubspot`",
             "`permissions`", "`subscription`", "`state_mismatch`", "`identity`"
         ]
         for tmpl in required_templates:
@@ -1715,6 +1937,21 @@ class TestTerraformDefaultsContract(unittest.TestCase):
         self.assertIn('"unused_auth_param" = "unused"', main_content)
         self.assertIn('https://mcp.slack.com', main_content)
         self.assertIn('"ByoOAuth"', main_content)
+
+    def test_hubspot_federated_defaults_contract(self):
+        """HubSpot CRM connector defaults must align with Discovery Engine FEDERATED mode and service key auth."""
+        with open(os.path.join(REPO_ROOT, "variables.tf"), "r", encoding="utf-8") as f:
+            vars_content = f.read()
+        with open(os.path.join(REPO_ROOT, "terraform.tfvars.example"), "r", encoding="utf-8") as f:
+            example_content = f.read()
+        with open(os.path.join(REPO_ROOT, "main.tf"), "r", encoding="utf-8") as f:
+            main_content = f.read()
+
+        self.assertTrue(re.search(r'^\s*enable_hubspot_connector\s*=\s*false\b', example_content, re.MULTILINE))
+        self.assertTrue(re.search(r'^\s*hubspot_auth_type\s*=\s*"SERVICE_KEY"', example_content, re.MULTILINE))
+        self.assertIn('entities                     = optional(list(string), ["contacts", "companies", "deals", "tickets"])', vars_content)
+        self.assertIn('"oauth_access_token" = local.effective_hubspot_token', main_content)
+        self.assertIn('https://api.hubapi.com', main_content)
 
     def test_tfvars_example_defaults_people_directory(self):
         """terraform.tfvars.example must define enable_people_directory_connector defaulting to false."""
@@ -1922,6 +2159,7 @@ class TestConfigureCLI(unittest.TestCase):
         self.assertIn("confluence", values)
         self.assertIn("slack", values)
         self.assertIn("people_directory", values)
+        self.assertIn("hubspot", values)
 
         for opt in options:
             self.assertTrue(len(opt.get("label", "")) > 0)
@@ -1977,38 +2215,40 @@ class TestConfigureCLI(unittest.TestCase):
         """configure.py CLI flags --connectors and --set correctly update terraform.tfvars."""
         proc = self._run_configure([
             "--workdir", self.temp_dir.name,
-            "--connectors", "workspace,jira",
+            "--connectors", "workspace,jira,hubspot",
             "--set", "customer_id=mycorp",
             "--set", "company_domain=mycorp.com"
         ])
         self.assertEqual(proc.returncode, 0)
         tfvars_path = os.path.join(self.temp_dir.name, "terraform.tfvars")
         parsed = configure_module.parse_tfvars(tfvars_path)
-        self.assertEqual(parsed.get("planned_connectors"), ["workspace", "jira"])
+        self.assertEqual(parsed.get("planned_connectors"), ["workspace", "jira", "hubspot"])
         self.assertEqual(parsed.get("customer_id"), "mycorp")
         self.assertEqual(parsed.get("company_domain"), "mycorp.com")
 
     def test_configure_stage_0_safety_guard_forces_enable_false(self):
         """In Stage 0, --apply-json strictly forces enable_* = false regardless of input."""
         payload = json.dumps({
-            "planned_connectors": ["workspace", "jira", "confluence", "slack", "people_directory"],
+            "planned_connectors": ["workspace", "jira", "confluence", "slack", "people_directory", "hubspot"],
             "enable_connectors": True,
             "enable_jira_connector": True,
             "enable_confluence_connector": True,
             "enable_slack_connector": True,
-            "enable_people_directory_connector": True
+            "enable_people_directory_connector": True,
+            "enable_hubspot_connector": True
         })
         proc = self._run_configure(["--workdir", self.temp_dir.name, "--apply-json", payload])
         self.assertEqual(proc.returncode, 0)
 
         tfvars_path = os.path.join(self.temp_dir.name, "terraform.tfvars")
         parsed = configure_module.parse_tfvars(tfvars_path)
-        self.assertEqual(parsed.get("planned_connectors"), ["workspace", "jira", "confluence", "slack", "people_directory"])
+        self.assertEqual(parsed.get("planned_connectors"), ["workspace", "jira", "confluence", "slack", "people_directory", "hubspot"])
         self.assertFalse(parsed.get("enable_connectors"))
         self.assertFalse(parsed.get("enable_jira_connector"))
         self.assertFalse(parsed.get("enable_confluence_connector"))
         self.assertFalse(parsed.get("enable_slack_connector"))
         self.assertFalse(parsed.get("enable_people_directory_connector"))
+        self.assertFalse(parsed.get("enable_hubspot_connector"))
 
     def test_configure_enable_connectors_stage_0_refusal(self):
         """configure.py --enable-connectors in Stage 0 refuses and exits code 1."""
@@ -2029,7 +2269,7 @@ class TestConfigureCLI(unittest.TestCase):
             "company_domain": "custcorp.com",
             "workspace_customer_id": "C0998877",
             "billing_account": "012345-678901-234567",
-            "planned_connectors": ["workspace", "jira", "slack"],
+            "planned_connectors": ["workspace", "jira", "slack", "hubspot"],
             "jira_config": {
                 "instance_uri": "https://custcorp.atlassian.net",
                 "connector_modes": ["FEDERATED"]
@@ -2038,10 +2278,16 @@ class TestConfigureCLI(unittest.TestCase):
                 "instance_uri": "https://custcorp.slack.com",
                 "connector_modes": ["FEDERATED"]
             },
+            "hubspot_config": {
+                "instance_uri": "https://api.hubapi.com",
+                "connector_modes": ["FEDERATED"]
+            },
             "jira_auth": "dummy-token-for-test",
+            "hubspot_auth": "pat-ap1-dummy-token",
             "enable_connectors": False,
             "enable_jira_connector": False,
             "enable_slack_connector": False,
+            "enable_hubspot_connector": False,
             "enable_people_directory_connector": False
         })
 
@@ -2053,6 +2299,7 @@ class TestConfigureCLI(unittest.TestCase):
         self.assertTrue(parsed.get("enable_connectors"))
         self.assertTrue(parsed.get("enable_jira_connector"))
         self.assertTrue(parsed.get("enable_slack_connector"))
+        self.assertTrue(parsed.get("enable_hubspot_connector"))
         self.assertFalse(parsed.get("enable_people_directory_connector"))
 
     def test_configure_check_success_when_all_variables_configured(self):
@@ -2132,6 +2379,7 @@ class TestConfigureInteractive(unittest.TestCase):
         self.assertIn("WHERE TO FIND THIS", out)
         self.assertIn("connectors/drive", out)
         self.assertIn("connectors/jira-cloud", out)
+        self.assertIn("connectors/hubspot", out)
         self.assertIn("https://docs.cloud.google.com/gemini/enterprise/docs/", out)
         self.assertIn("https://developers.google.com/admin-sdk/directory/v1/guides", out)
 
@@ -2309,7 +2557,7 @@ class TestBranchAndIssueContracts(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertIn(
             proc.stdout.strip(),
-            ["Slack-Data-Connector", "feat/interactive-connector-onboarding", "feat/geap-governance-foundation", "main", ""]
+            ["Slack-Data-Connector", "feat/interactive-connector-onboarding", "feat/geap-governance-foundation", "feat/hubspot-data-connector", "hubspot-data-connector", "main", ""]
         )
 
     def test_issue_05_specification_contract(self):

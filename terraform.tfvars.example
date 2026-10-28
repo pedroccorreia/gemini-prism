@@ -143,3 +143,28 @@ people_directory_config = {
   sync_mode               = "INCREMENTAL"
   entities                = ["user_profile", "job_architecture", "reporting_hierarchy", "location_contact", "custom_attributes"]
 }
+
+# HubSpot CRM Connector (optional)
+enable_hubspot_connector = false
+hubspot_auth_type        = "SERVICE_KEY"
+
+hubspot_config = {
+  instance_uri                 = "https://api.hubapi.com"
+  portal_id                    = "" # Optional: HubSpot Account / Portal ID (Hub ID)
+  collection_id                = "hubspot-federated-collection"
+  data_source                  = "hubspot"
+  connector_modes              = ["FEDERATED"]
+  sync_mode                    = "PERIODIC"
+  refresh_interval             = "86400s"
+  incremental_refresh_interval = "10800s"
+  entities                     = ["contacts", "companies", "deals", "tickets"]
+  static_ip_enabled            = false
+  enable_actions               = false
+  enabled_actions              = []
+}
+
+# Note: Sensitive HubSpot Service Key / Private App token credentials should be passed via TF_VAR_hubspot_auth environment variable, e.g.:
+# export TF_VAR_hubspot_auth='{"oauth_access_token":"pat-ap1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"}'
+# or
+# export TF_VAR_hubspot_auth='{"service_key":"pat-ap1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"}'
+

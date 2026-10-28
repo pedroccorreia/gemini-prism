@@ -40,6 +40,7 @@ When entering Stage 0 (`make status --json` reports `phase: 0`):
 | **Stage 2** | Atlassian Jira authorization / URI missing | Valid Jira URI & credentials configured | `jira` |
 | **Stage 2** | Atlassian Confluence authorization / URI missing | Valid Confluence URI & credentials configured | `confluence` |
 | **Stage 2** | Slack Enterprise authorization / URI missing | Valid Slack URI / `team_id` & credentials configured | `slack` |
+| **Stage 2** | HubSpot CRM authorization / token missing | Valid HubSpot service key (`TF_VAR_hubspot_auth`) configured | `hubspot` |
 | **Stage 4** | Missing billing subscription IDs | Subscription IDs set in tfvars | `subscription` |
 
 ## Phase Detection (`make status --json`)
@@ -58,60 +59,57 @@ When entering Stage 0 (`make status --json` reports `phase: 0`):
 ACTION REQUIRED: Customer configuration variables missing or placeholder in terraform.tfvars.
 Run `make configure` for the interactive wizard or `make check-inputs` to view step-by-step lookup guides.
 ```
-
 ### `dwd`
 ```text
 ACTION REQUIRED (Workspace Super Admin): Authorize Domain-Wide Delegation in https://admin.google.com/ac/owl/domainwidedelegation.
 Add API Client using the 21-digit numeric Client ID (uniqueId) and service agent email from `make dwd-checklist` with OAuth scopes CSV.
 In https://admin.google.com, allow GCP projects under Security > Access and data control > API controls > Google Cloud Core Services, and verify Workspace data access under Generative AI > Gemini Enterprise. Set enable_connectors = true when done.
 ```
-
 ### `workspace_actions`
 ```text
 ACTION REQUIRED: Configure Google Workspace OAuth 2.0 Web Application client for Actions.
 Run `make workspace-actions-checklist` to view the authorized redirect URIs.
 Create an OAuth client ID (Web application) in https://console.cloud.google.com/apis/credentials and export TF_VAR_workspace_oauth='{"client_id":"...","client_secret":"..."}'.
 ```
-
 ### `jira`
 ```text
 ACTION REQUIRED (Atlassian Admin): Configure Atlassian Jira authorization.
 Run `make jira-checklist` to view the OAuth 2.0 (3LO) callback URL, required scopes, and instance URI.
 Configure Atlassian Developer Console app or API token, set TF_VAR_jira_auth, and update jira_config.instance_uri in terraform.tfvars.
 ```
-
 ### `confluence`
 ```text
 ACTION REQUIRED (Atlassian Admin): Configure Atlassian Confluence authorization.
 Run `make confluence-checklist` to view the OAuth 2.0 (3LO) callback URL, required scopes, and instance URI.
 Configure Atlassian Developer Console app or API token, set TF_VAR_confluence_auth (or reuse TF_VAR_jira_auth), and update confluence_config.instance_uri in terraform.tfvars.
 ```
-
 ### `slack`
 ```text
 ACTION REQUIRED (Slack Admin): Configure Slack Enterprise authorization.
 Run `make slack-checklist` to view the Federated + MCP Actions setup, OAuth redirect URL, and target entities.
 Set slack_config.instance_uri (and optional team_id) in terraform.tfvars; optionally create a BYO Slack App in https://api.slack.com/apps and set TF_VAR_slack_auth.
 ```
-
+### `hubspot`
+```text
+ACTION REQUIRED (HubSpot Admin): Configure HubSpot CRM authorization.
+Run `make hubspot-checklist` to view the required CRM read scopes and target entities (contacts, companies, deals, tickets).
+Create a Service Key in https://app.hubspot.com (Development > Keys > Service Keys) (pat-ap1-...) and set TF_VAR_hubspot_auth='{"oauth_access_token":"pat-ap1-..."}'.
+```
 ### `permissions`
 ```text
 ACTION REQUIRED (IAM & Workspace Admin): The executing principal lacks required permissions.
 Grant GCP roles (roles/resourcemanager.projectCreator, roles/billing.user) AND Workspace Groups Admin in https://admin.google.com/ac/roles.
 ```
-
 ### `subscription`
 ```text
 ACTION REQUIRED (Billing Admin): Gemini Enterprise subscription IDs are missing.
 Purchase subscription on Billing Account (or run `python3 scripts/allocate_licenses.py --discover`) and set license_config_id and subscription_id in terraform.tfvars.
 ```
-
 ### `state_mismatch`
 ```text
 CRITICAL (Human Intervention): Local state contains projects from another deployment.
 Do not apply. Backup or isolate current state before proceeding (see RUNBOOK.md §State Safety).
 ```
-
 ### `identity`
 ```text
 ACTION REQUIRED: Active GCP credentials not found.
@@ -129,6 +127,7 @@ Run `gcloud auth application-default login` and `gcloud auth login` with a custo
 | `jira: 401/403/UNAUTHORIZED` | Invalid Jira credentials or scopes | Post `jira` template; verify `TF_VAR_jira_auth` |
 | `confluence: 401/403/UNAUTHORIZED` | Invalid Confluence credentials or scopes | Post `confluence` template; verify `TF_VAR_confluence_auth` / `TF_VAR_jira_auth` |
 | `slack: 401/403/invalid_auth` | Invalid Slack OAuth credentials or scopes | Post `slack` template; verify `slack_config` & `TF_VAR_slack_auth` |
+| `hubspot: 401/403/UNAUTHORIZED` | Invalid HubSpot service key or scopes | Post `hubspot` template; verify `TF_VAR_hubspot_auth` |
 | `DataStore ... is being deleted` | Async GCP deletion after collection removal (up to 2h) | Use a distinct `collection_id` in connector config |
 | `Error 400: DataStore ... currently exists in list at index N of Engine` | Deleting an existing connector before detaching its data store from `google_discovery_engine_search_engine` | Keep `lifecycle { create_before_destroy = true }` on `google_discovery_engine_data_connector.connectors` so the Engine updates before old collections are destroyed |
 | `DeleteCollection: 500 / spanner: value not found` | Deleting a `FEDERATED` connector while `state == "CREATING"` | Wait ~5m for BAP connection to reach `ACTIVE` or `FAILED` before deleting |

@@ -103,6 +103,19 @@ CONNECTOR_OPTIONS = [
         "default": False,
         "enable_flag": "enable_people_directory_connector",
     },
+    {
+        "value": "hubspot",
+        "label": "HubSpot CRM",
+        "description": "HubSpot CRM contacts, companies, deals, and tickets federated search connector",
+        "docs_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
+        "help_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
+        "doc_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
+        "admin_url": "https://app.hubspot.com",
+        "lookup_command": "echo 'export TF_VAR_hubspot_auth={\"oauth_access_token\":\"pat-ap1-...\"}'",
+        "required_roles": ["HubSpot Super Admin"],
+        "default": False,
+        "enable_flag": "enable_hubspot_connector",
+    },
 ]
 
 GEAP_GOVERNANCE_OPTIONS = [
@@ -247,6 +260,17 @@ VARIABLE_METADATA = {
         "required_roles": ["Slack Workspace Owner / Org Admin"],
         "help_center_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/slack",
     },
+    "hubspot_auth": {
+        "name": "hubspot_auth",
+        "title": "HubSpot CRM Service Key",
+        "description": "HubSpot Service Key (e.g. pat-ap1-...) passed via TF_VAR_hubspot_auth",
+        "connector": "hubspot",
+        "where_to_get": "HubSpot > Development > Keys > Service Keys (create Service Key with CRM read scopes and copy access token).",
+        "admin_url": "https://app.hubspot.com",
+        "lookup_command": "echo 'export TF_VAR_hubspot_auth={\"oauth_access_token\":\"pat-ap1-...\"}'",
+        "required_roles": ["HubSpot Super Admin"],
+        "help_center_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
+    },
     "workspace_oauth": {
         "name": "workspace_oauth",
         "title": "Google Workspace OAuth 2.0 Web Client",
@@ -292,13 +316,13 @@ def is_placeholder(val):
 def _parse_flat_map(raw_map):
     """Parse a flat HCL map body into a Python dict."""
     inner = {}
-    for mk, raw_items in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*\[(.*?)\]', raw_map, re.DOTALL):
+    for mk, raw_items in re.findall(r'"?([a-zA-Z0-9_-]+)"?\s*=\s*\[(.*?)\]', raw_map, re.DOTALL):
         inner[mk] = re.findall(r'["\']([^"\']*)["\']', raw_items)
-    raw_map_clean = re.sub(r'([a-zA-Z0-9_-]+)\s*=\s*\[.*?\]', '', raw_map, flags=re.DOTALL)
-    for mk, mv in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"', raw_map_clean):
+    raw_map_clean = re.sub(r'"?([a-zA-Z0-9_-]+)"?\s*=\s*\[.*?\]', '', raw_map, flags=re.DOTALL)
+    for mk, mv in re.findall(r'"?([a-zA-Z0-9_-]+)"?\s*=\s*"([^"]*)"', raw_map_clean):
         if mk not in inner:
             inner[mk] = mv
-    for mk, mv in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*([a-zA-Z0-9_./:-]+)\b', raw_map_clean):
+    for mk, mv in re.findall(r'"?([a-zA-Z0-9_-]+)"?\s*=\s*([a-zA-Z0-9_./:-]+)\b', raw_map_clean):
         if mk not in inner:
             if mv.lower() == "true":
                 inner[mk] = True
@@ -455,8 +479,9 @@ def determine_stage(workdir=".", state_path=None, tfvars_path=None):
     enable_confluence = tfvars.get("enable_confluence_connector", False)
     enable_slack = tfvars.get("enable_slack_connector", False)
     enable_directory = tfvars.get("enable_people_directory_connector", False)
+    enable_hubspot = tfvars.get("enable_hubspot_connector", False)
 
-    if not enable_connectors and not enable_jira and not enable_confluence and not enable_slack and not enable_directory:
+    if not enable_connectors and not enable_jira and not enable_confluence and not enable_slack and not enable_directory and not enable_hubspot:
         return 2
 
     # Check Jira if enabled
@@ -652,7 +677,31 @@ def audit_inputs(tfvars=None, planned_connectors=None, workdir="."):
         else:
             configured_variables["slack_instance_uri"] = slack_uri
 
-    # 4. Workspace Actions OAuth variables if workspace actions enabled
+    # 4. HubSpot variables if planned
+    if "hubspot" in planned_connectors:
+        has_hubspot_cred = (
+            bool(os.environ.get("TF_VAR_hubspot_auth")) or
+            os.path.exists(os.path.join(workdir, ".env.hubspot")) or
+            bool(tfvars.get("hubspot_auth"))
+        )
+        meta_hs_auth = VARIABLE_METADATA["hubspot_auth"]
+        if not has_hubspot_cred:
+            missing_variables.append({
+                "name": "hubspot_auth",
+                "description": meta_hs_auth["description"],
+                "connector": meta_hs_auth["connector"],
+                "where_to_get": meta_hs_auth["where_to_get"],
+                "admin_url": meta_hs_auth["admin_url"],
+                "lookup_command": meta_hs_auth["lookup_command"],
+                "required_roles": meta_hs_auth["required_roles"],
+                "required_iam_roles": meta_hs_auth["required_roles"],
+                "help_center_url": meta_hs_auth["help_center_url"],
+                "help_url": meta_hs_auth["help_center_url"],
+            })
+        else:
+            configured_variables["hubspot_auth"] = "********"
+
+    # 5. Workspace Actions OAuth variables if workspace actions enabled
     if is_workspace_actions_enabled(tfvars):
         has_ws_oauth = (
             bool(os.environ.get("TF_VAR_workspace_oauth")) or
@@ -681,7 +730,7 @@ def audit_inputs(tfvars=None, planned_connectors=None, workdir="."):
     # Add other configured variables from tfvars
     for k, v in tfvars.items():
         if k not in configured_variables and not is_placeholder(v):
-            if k not in ["jira_config", "confluence_config", "slack_config", "people_directory_config", "workspace_actions_config", "extra_data_store_ids"]:
+            if k not in ["jira_config", "confluence_config", "slack_config", "people_directory_config", "hubspot_config", "workspace_actions_config", "extra_data_store_ids"]:
                 configured_variables[k] = v
 
     gov_mode = str(tfvars.get("geap_governance_mode", "none")).strip().lower() or "none"
@@ -739,6 +788,7 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
         updates["enable_confluence_connector"] = False
         updates["enable_slack_connector"] = False
         updates["enable_people_directory_connector"] = False
+        updates["enable_hubspot_connector"] = False
 
     # 1. Update planned_connectors
     if "planned_connectors" in updates:
@@ -789,7 +839,14 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
         )
 
     # 2. Update enable_* flags
-    for flag in ["enable_connectors", "enable_jira_connector", "enable_confluence_connector", "enable_slack_connector", "enable_people_directory_connector"]:
+    for flag in [
+        "enable_connectors",
+        "enable_jira_connector",
+        "enable_confluence_connector",
+        "enable_slack_connector",
+        "enable_people_directory_connector",
+        "enable_hubspot_connector",
+    ]:
         if flag in updates:
             val_bool = "true" if updates[flag] else "false"
             spacing = "    " if flag == "enable_connectors" else " "
@@ -799,7 +856,7 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
             else:
                 content += f"\n{line}\n"
 
-    # 3. Update Jira & Slack config nested properties
+    # 3. Update Jira, Slack, & HubSpot config nested properties
     jira_uri = updates.get("jira_instance_uri") or updates.get("jira_config.instance_uri")
     if jira_uri:
         def replace_jira_uri(m):
@@ -836,6 +893,24 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
             return block
         content = re.sub(r'slack_config\s*=\s*\{.*?\}', replace_slack_tid, content, flags=re.DOTALL)
 
+    hubspot_uri = updates.get("hubspot_instance_uri") or updates.get("hubspot_config.instance_uri")
+    if hubspot_uri:
+        def replace_hubspot_uri(m):
+            block = m.group(0)
+            if re.search(r'instance_uri\s*=\s*"[^"]*"', block):
+                return re.sub(r'instance_uri\s*=\s*"[^"]*"', f'instance_uri                 = "{hubspot_uri}"', block)
+            return block
+        content = re.sub(r'hubspot_config\s*=\s*\{.*?\}', replace_hubspot_uri, content, flags=re.DOTALL)
+
+    hubspot_pid = updates.get("hubspot_portal_id") or updates.get("hubspot_config.portal_id")
+    if hubspot_pid:
+        def replace_hubspot_pid(m):
+            block = m.group(0)
+            if re.search(r'portal_id\s*=\s*"[^"]*"', block):
+                return re.sub(r'portal_id\s*=\s*"[^"]*"', f'portal_id                    = "{hubspot_pid}"', block)
+            return block
+        content = re.sub(r'hubspot_config\s*=\s*\{.*?\}', replace_hubspot_pid, content, flags=re.DOTALL)
+
     # 4. Update top-level variables
     skip_keys = {
         "planned_connectors",
@@ -846,6 +921,7 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
         "enable_confluence_connector",
         "enable_slack_connector",
         "enable_people_directory_connector",
+        "enable_hubspot_connector",
         "jira_instance_uri",
         "jira_instance_id",
         "jira_config.instance_uri",
@@ -856,6 +932,11 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
         "slack_config.instance_uri",
         "slack_config.team_id",
         "slack_auth",
+        "hubspot_instance_uri",
+        "hubspot_portal_id",
+        "hubspot_config.instance_uri",
+        "hubspot_config.portal_id",
+        "hubspot_auth",
     }
     for k, v in updates.items():
         if k in skip_keys:
@@ -904,6 +985,23 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
         except Exception:
             pass
 
+    # Write .env.hubspot helper if hubspot_auth is provided
+    if "hubspot_auth" in updates and updates["hubspot_auth"]:
+        hs_auth_val = updates["hubspot_auth"]
+        if isinstance(hs_auth_val, dict):
+            hs_auth_str = json.dumps(hs_auth_val)
+        elif str(hs_auth_val).strip().startswith("{"):
+            hs_auth_str = str(hs_auth_val).strip()
+        else:
+            hs_auth_str = json.dumps({"oauth_access_token": str(hs_auth_val).strip()})
+        env_hs_path = os.path.join(dir_name, ".env.hubspot")
+        with open(env_hs_path, "w", encoding="utf-8") as f:
+            f.write(f"export TF_VAR_hubspot_auth='{hs_auth_str}'\n")
+        try:
+            os.chmod(env_hs_path, 0o600)
+        except Exception:
+            pass
+
     with open(tfvars_path, "w", encoding="utf-8") as f:
         f.write(content)
 
@@ -936,12 +1034,18 @@ def print_boxed_help(topic=None):
     print("│    • Slack Apps Console: https://api.slack.com/apps                        │")
     print("│    • Default Auth: Google-Managed OAuth 2.0 (v3 Federated + MCP Actions)   │")
     print("│                                                                            │")
-    print("│ 4. Google Workspace People Directory                                       │")
+    print("│ 4. HubSpot CRM                                                             │")
+    print("│    • Help Center: https://docs.cloud.google.com/gemini/enterprise/docs/    │")
+    print("│      connectors/hubspot                                                    │")
+    print("│    • HubSpot Console: https://app.hubspot.com                              │")
+    print("│    • Required Auth: Service Key (pat-ap1-...)                              │")
+    print("│                                                                            │")
+    print("│ 5. Google Workspace People Directory                                       │")
     print("│    • Guide: https://developers.google.com/admin-sdk/directory/v1/guides    │")
     print("│    • Workspace Admin: https://admin.google.com/ac/owl/domainwidedelegation │")
     print("│    • Required Scopes: Directory API user.readonly, orgunit.readonly        │")
     print("│                                                                            │")
-    print("│ 5. Google Cloud Core Parameters                                            │")
+    print("│ 6. Google Cloud Core Parameters                                            │")
     print("│    • Billing Account ID: https://console.cloud.google.com/billing           │")
     print("│      (Lookup command: gcloud billing accounts list)                        │")
     print("│    • Workspace Customer ID: https://admin.google.com/ac/accountsettings     │")
@@ -1102,6 +1206,7 @@ def interactive_combo_box(prompt_title, options, default_values=None):
             lines.append("│ • Jira:       https://docs.cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud │")
             lines.append("│ • Confluence: https://docs.cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud │")
             lines.append("│ • Slack:      https://docs.cloud.google.com/gemini/enterprise/docs/connectors/slack      │")
+            lines.append("│ • HubSpot:    https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot    │")
             lines.append("│ • Directory:  https://developers.google.com/admin-sdk/directory/v1/guides                │")
             lines.append("└" + "─" * 76 + "┘")
 
@@ -1402,6 +1507,19 @@ def enable_connectors(workdir=".", state_path=None, tfvars_path=None, json_outpu
         if "DATA_INGESTION" in slack_modes or "FEDERATED" not in slack_modes:
             errors.append("Slack prerequisite invalid: Slack connector must use FEDERATED mode (connector_modes = [\"FEDERATED\"]).")
 
+    if "hubspot" in planned:
+        hubspot_cfg = tfvars.get("hubspot_config", {})
+        hubspot_modes = hubspot_cfg.get("connector_modes", ["FEDERATED"])
+        if "DATA_INGESTION" in hubspot_modes or "FEDERATED" not in hubspot_modes:
+            errors.append("HubSpot prerequisite invalid: HubSpot connector must use FEDERATED mode (connector_modes = [\"FEDERATED\"]).")
+        has_hubspot_cred = (
+            bool(os.environ.get("TF_VAR_hubspot_auth")) or
+            os.path.exists(os.path.join(workdir, ".env.hubspot")) or
+            bool(tfvars.get("hubspot_auth"))
+        )
+        if not has_hubspot_cred:
+            errors.append("HubSpot prerequisite missing: Service key / token credentials not found in TF_VAR_hubspot_auth, .env.hubspot, or terraform.tfvars.")
+
     if errors:
         if json_output:
             print(json.dumps({"status": "prerequisites_failed", "errors": errors}, indent=2))
@@ -1418,6 +1536,7 @@ def enable_connectors(workdir=".", state_path=None, tfvars_path=None, json_outpu
         "enable_confluence_connector": ("confluence" in planned),
         "enable_slack_connector": ("slack" in planned),
         "enable_people_directory_connector": ("people_directory" in planned),
+        "enable_hubspot_connector": ("hubspot" in planned),
     }
     update_tfvars(actual_tfvars, updates, stage=stage, allow_enable=True, workdir=workdir)
 
@@ -1435,6 +1554,7 @@ def enable_connectors(workdir=".", state_path=None, tfvars_path=None, json_outpu
         print(f"  • enable_confluence_connector       = {str(updates['enable_confluence_connector']).lower()}")
         print(f"  • enable_slack_connector            = {str(updates['enable_slack_connector']).lower()}")
         print(f"  • enable_people_directory_connector = {str(updates['enable_people_directory_connector']).lower()}")
+        print(f"  • enable_hubspot_connector          = {str(updates['enable_hubspot_connector']).lower()}")
         print("=" * 80)
         print("Next step: Run 'make plan-connectors && make apply-connectors' to provision resources.")
     sys.exit(0)
@@ -1585,7 +1705,7 @@ def main():
     parser.add_argument("--check", action="store_true", help="Audit variables against planned connectors.")
     parser.add_argument("--json", action="store_true", help="Output audit or operation result in JSON format.")
     parser.add_argument("--apply-json", help="JSON string containing configuration to apply non-interactively.")
-    parser.add_argument("--connectors", help="Comma-separated list of planned connectors (workspace,jira,confluence,slack,people_directory).")
+    parser.add_argument("--connectors", help="Comma-separated list of planned connectors (workspace,jira,confluence,slack,people_directory,hubspot).")
     parser.add_argument("--governance-mode", help="Optional GEAP Agent Governance posture: 'none' (skip) or 'foundation' (enable underlying APIs & Admin IAM).")
     parser.add_argument("--workspace-actions", help="Optional Google Workspace Actions toggle: 'true'/'enable' or 'false'/'skip'.")
     parser.add_argument("--sync-workspace-actions", action="store_true", help="Persist actionConfig.isActionConfigured=true for Workspace action connectors after Terraform apply.")
@@ -1688,10 +1808,10 @@ def main():
             if not isinstance(planned, list):
                 print("Error: planned_connectors must be a list of strings", file=sys.stderr)
                 sys.exit(1)
-            valid_set = {"workspace", "jira", "confluence", "slack", "people_directory"}
+            valid_set = {"workspace", "jira", "confluence", "slack", "people_directory", "hubspot"}
             for c in planned:
                 if c not in valid_set:
-                    print(f"Error: Invalid connector '{c}'. Allowed: 'workspace', 'jira', 'confluence', 'slack', 'people_directory'", file=sys.stderr)
+                    print(f"Error: Invalid connector '{c}'. Allowed: 'workspace', 'jira', 'confluence', 'slack', 'people_directory', 'hubspot'", file=sys.stderr)
                     sys.exit(1)
 
         if "geap_governance_mode" in updates:
@@ -1796,6 +1916,7 @@ def main():
     print(f"  • enable_confluence_connector       = false (Stage 0 safety)")
     print(f"  • enable_slack_connector            = false (Stage 0 safety)")
     print(f"  • enable_people_directory_connector = false (Stage 0 safety)")
+    print(f"  • enable_hubspot_connector          = false (Stage 0 safety)")
     print("=" * 80)
 
     updated_tfvars = parse_tfvars(tfvars_path) or {}
@@ -1806,3 +1927,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

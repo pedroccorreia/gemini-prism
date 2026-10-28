@@ -53,15 +53,15 @@ stateDiagram-v2
    ```bash
    make status
    ```
-2. Configure input variables and select planned enterprise connectors:
+2. Configure input variables, select planned enterprise connectors, and choose whether to enable or skip the optional **GEAP Agent Governance Foundation (`geap_governance_mode`)**:
    - **Interactive Terminal Wizard (Humans)**: Run the zero-dependency onboarding wizard:
      ```bash
      make configure
      ```
-     Provides an interactive combo-box with arrow keys (`[↑/↓]`), spacebar selection (`[Space]`), Enter confirmation, and inline boxed help (`?`) with direct documentation links.
+     Prompts first for `planned_connectors` (`[↑/↓]`, `[Space]`, `?` help) and second for **GEAP Agent Governance** (`"foundation"` to enable Agent Registry, Agent Identity, Gateway, Model Armor & Topology APIs + Admin IAM, or `"none"` to skip and deploy Gemini Enterprise only).
    - **Cross-Harness Combo-Box (Agents)**: Inspect the `interactive_questions` array via `make status ARGS="--json"` or `make check-inputs ARGS="--json"`. Present questions through native harness tools (`ask_question`, `AskUserQuestion`) and apply answers non-interactively:
      ```bash
-     python3 scripts/configure.py --apply-json '{"planned_connectors": ["workspace", "jira"], "customer_id": "acme"}'
+     python3 scripts/configure.py --apply-json '{"planned_connectors": ["workspace", "jira"], "geap_governance_mode": "foundation", "customer_id": "acme"}'
      ```
    - **Manual Configuration**: Alternatively, copy template `cp terraform.tfvars.example terraform.tfvars` and edit customer values.
 3. Audit configured vs. missing variables:
@@ -130,6 +130,7 @@ stateDiagram-v2
 - [ ] Discovery Engine service agent identities created (`service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com`)
 - [ ] Cloud Identity Admin & User Groups created (`<customer_id>-<env>-admins@<domain>` and `<customer_id>-<env>-users@<domain>`)
 - [ ] Location IdP configured to `GSUITE`
+- [ ] *(If `geap_governance_mode = "foundation"`)* 16 GEAP Foundation APIs enabled, 4 Primary GEAP P4SAs pre-warmed, and 6 GEAP Admin/Topology IAM roles bound (`make geap-checklist`; to enable later on an already-provisioned Stage 3–5 deployment without touching running connectors, run `make plan-governance && make apply-governance`)
 
 ---
 
@@ -156,7 +157,9 @@ stateDiagram-v2
      https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly,https://www.googleapis.com/auth/admin.directory.orgunit.readonly,https://www.googleapis.com/auth/admin.directory.userschema.readonly,https://www.googleapis.com/auth/directory.readonly,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly,https://www.googleapis.com/auth/chat.memberships.readonly
      ```
    - Click **Authorize**.
-4. In Workspace Admin Console under **Security > Access and data control > API controls > Google Cloud Core Services**, allow access for the environment GCP project IDs if prompted.
+4. In Workspace Admin Console (`https://admin.google.com`):
+   - Under **Security > Access and data control > API controls > Google Cloud Core Services**, allow access for the environment GCP project IDs if prompted.
+   - Under **Generative AI > Gemini Enterprise**, verify that Google Workspace data access is enabled for target Organizational Units / groups.
 5. If Atlassian Jira is planned (`"jira"` in `planned_connectors` or `enable_jira_connector = true`):
    - Run `make jira-checklist` to view the Jira instance URI, resolved `cloudId` (`instance_id`), required OAuth scopes, and redirect URLs.
    - Ensure `connector_modes = ["FEDERATED"]` is configured in `jira_config`.
@@ -199,7 +202,7 @@ stateDiagram-v2
 
 | Connector | Mode | Official Help Center & Guides | Admin Consoles | Required IAM Roles & Credentials |
 | :--- | :--- | :--- | :--- | :--- |
-| **Google Workspace** (Gmail, Calendar, Drive, Chat) | `FEDERATED` | [Workspace Connectors Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/introduction-to-connectors-and-data-stores)<br/>[Gmail Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/gmail)<br/>[Drive Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/drive) | [Workspace DWD Console](https://admin.google.com/ac/owl/domainwidedelegation)<br/>[Core Services](https://admin.google.com/ac/owl) | Google Workspace Super Admin<br/>21-digit numeric Client ID (`uniqueId`) |
+| **Google Workspace** (Gmail, Calendar, Drive, Chat) | `FEDERATED` + `ACTIONS` | [Workspace Connectors Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/introduction-to-connectors-and-data-stores)<br/>[Gmail Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/gmail)<br/>[Drive Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/drive) | [Workspace DWD Console](https://admin.google.com/ac/owl/domainwidedelegation)<br/>[Core Services](https://admin.google.com/ac/owl) | Google Workspace Super Admin<br/>21-digit numeric Client ID (`uniqueId`) + 3LO Web OAuth (`TF_VAR_workspace_oauth`) |
 | **Atlassian Jira Cloud** | `FEDERATED` | [Jira Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/)<br/>[Atlassian Admin Console](https://admin.atlassian.com) | Atlassian Org Admin / Site Admin<br/>OAuth 2.0 (3LO) App / Token (`TF_VAR_jira_auth`) |
 | **Atlassian Confluence** | `FEDERATED` | [Confluence Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) | Atlassian Org Admin / Site Admin<br/>OAuth 2.0 (3LO) or Shared Jira credentials |
 | **Slack Enterprise** | `FEDERATED` + `ACTIONS` | [Slack Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/slack) | [Slack API Apps Console](https://api.slack.com/apps)<br/>[Slack Workspace Admin](https://app.slack.com/manage) | Slack Workspace Owner / Org Admin<br/>Google-Managed OAuth (0 secrets) or BYO OAuth App (`TF_VAR_slack_auth`) |
@@ -247,6 +250,7 @@ stateDiagram-v2
 - Slack connector fails with `INITIALIZING` state update error or `400`: Wait for initial BAP connection provisioning to reach `ACTIVE`, and ensure `entities` uses `["conversation", "message", "file"]`.
 - If permission failure persists after 15 minutes: Escalate with the **dwd**, **jira**, **confluence**, or **slack** template to re-verify Client ID and scope entries.
 - `google_discovery_engine_assistant.default` fails with `400` / `409` (`Only one assistant per engine is allowed` / `Already Exists`): Provisioning a search engine with `SEARCH_ADD_ON_LLM` automatically creates `default_assistant`. Import it into state (`terraform import 'google_discovery_engine_assistant.default["<env>"]' projects/<PROJECT_ID>/locations/global/collections/default_collection/engines/<ENGINE_ID>/assistants/default_assistant`) and re-run `make plan-connectors && make apply-connectors`.
+- **Workspace Actions report `ActionState: CREATING` or `ActionConfigured: False`**: Ensure `TF_VAR_workspace_oauth` (`client_id` and `client_secret`) is set in `.env.workspace` and run `python3 scripts/configure.py --sync-workspace-actions` (chained automatically in `make apply-connectors`).
 
 **Checklist:**
 - [ ] `make plan-connectors` generated `.plans/connectors.tfplan` with 0 deletes/replaces
@@ -322,7 +326,7 @@ stateDiagram-v2
    ```bash
    make verify WAIT=15m
    ```
-2. Review the printed summary table and Vertex AI Search console URLs.
+2. Review the printed summary table and Vertex AI Search console URLs (and if `geap_governance_mode = "foundation"`, inspect the GEAP Governance readiness & Day-2 handoff manifest via `make geap-checklist`).
 3. Conduct User Acceptance Testing (Human):
    - Add pilot users to the provisioned Cloud Identity User Group (`<customer_id>-<env>-users@<domain>`).
    - Allow **1–3 minutes** for Cloud Identity group membership and User Store license auto-assignment to propagate.
@@ -344,3 +348,28 @@ stateDiagram-v2
 - [ ] Console URLs confirmed accessible
 - [ ] Pilot users granted access via Cloud Identity group
 - [ ] End-to-end user search verification completed
+
+---
+
+## Enabling Google Workspace Actions (BAP + 3LO Web OAuth)
+
+Prism supports Google Workspace Actions across all 4 connectors (`google_calendar`, `google_mail`, `google_drive`, `google_chat`) using Discovery Engine BAP Integration Connectors and 3-Legged OAuth (3LO):
+
+1. **Create Web Application OAuth 2.0 Client:**
+   - In Google Cloud Console → **APIs & Services > Credentials** (or run `make workspace-actions-checklist`), click **Create Credentials > OAuth client ID**.
+   - Select **Web application** and add Authorized Redirect URIs:
+     - `https://vertexaisearch.cloud.google.com/console/oauth/default_oauth.html`
+     - `https://vertexaisearch.cloud.google.com/oauth-redirect`
+   - In **OAuth consent screen**, set User Type to **Internal** for the customer organization.
+2. **Export Sensitive OAuth Credentials:**
+   ```bash
+   export TF_VAR_workspace_oauth='{"client_id":"<CLIENT_ID>","client_secret":"<CLIENT_SECRET>"}'
+   ```
+3. **Enable Workspace Actions in `terraform.tfvars`:**
+   ```hcl
+   enable_workspace_actions = true
+   ```
+   *(When transitioning an existing `FEDERATED`-only connector, collection IDs automatically default to `*-actions-collection` to cleanly provision fresh collections.)*
+4. **Deploy & Verify:**
+   - Run `make plan-connectors && make apply-connectors`.
+   - Run `make verify` to confirm all Workspace connectors report `Action state: ACTIVE`, `ActionConfigured: True`, and `Modes: FEDERATED,ACTIONS`.

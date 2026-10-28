@@ -24,6 +24,8 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 
 # Optional POSIX raw terminal support
 try:
@@ -100,6 +102,48 @@ CONNECTOR_OPTIONS = [
         "required_roles": ["Google Workspace Super Admin"],
         "default": False,
         "enable_flag": "enable_people_directory_connector",
+    },
+]
+
+GEAP_GOVERNANCE_OPTIONS = [
+    {
+        "value": "none",
+        "label": "Skip GEAP Governance (Gemini Enterprise Only)",
+        "description": "Provisions Gemini Enterprise Search, Assistant, and Federated Connectors only",
+        "docs_url": "https://docs.cloud.google.com/gemini/enterprise/docs/overview",
+        "help_url": "https://docs.cloud.google.com/gemini/enterprise/docs/overview",
+        "doc_url": "https://docs.cloud.google.com/gemini/enterprise/docs/overview",
+        "default": True,
+    },
+    {
+        "value": "foundation",
+        "label": "Enable GEAP Governance Foundation (Agent Registry, Gateway, Model Armor & Topology)",
+        "description": "Enables underlying GEAP Registry, Identity, Gateway, Model Armor & Topology APIs, pre-warms P4SAs, and binds GEAP Admin IAM (zero deployed agents required)",
+        "docs_url": "https://docs.cloud.google.com/agent-registry/overview",
+        "help_url": "https://docs.cloud.google.com/agent-registry/overview",
+        "doc_url": "https://docs.cloud.google.com/agent-registry/overview",
+        "default": False,
+    },
+]
+
+WORKSPACE_ACTIONS_OPTIONS = [
+    {
+        "value": "false",
+        "label": "Federated Search Only — Standard DWD Read Baseline",
+        "description": "Provisions Gmail, Calendar, Drive, and Chat in FEDERATED search mode via Domain-Wide Delegation",
+        "docs_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/drive",
+        "help_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/drive",
+        "doc_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/drive",
+        "default": False,
+    },
+    {
+        "value": "true",
+        "label": "(Recommended) Enable Workspace Actions (BAP Write Actions + 3LO Web OAuth)",
+        "description": "Enables create/update events in Calendar, send/reply/label in Gmail, folder/copy/upload in Drive, and space/reply in Chat via 3LO Web OAuth (TF_VAR_workspace_oauth)",
+        "docs_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/calendar",
+        "help_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/calendar",
+        "doc_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/calendar",
+        "default": True,
     },
 ]
 
@@ -203,7 +247,32 @@ VARIABLE_METADATA = {
         "required_roles": ["Slack Workspace Owner / Org Admin"],
         "help_center_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/slack",
     },
+    "workspace_oauth": {
+        "name": "workspace_oauth",
+        "title": "Google Workspace OAuth 2.0 Web Client",
+        "description": "Google Cloud Web Application OAuth 2.0 Client credentials (client_id, client_secret) for Workspace Actions",
+        "connector": "workspace",
+        "where_to_get": "Google Cloud Console > APIs & Services > Credentials > Create Credentials > OAuth client ID (Web application) with redirect URIs https://vertexaisearch.cloud.google.com/console/oauth/default_oauth.html and https://vertexaisearch.cloud.google.com/oauth-redirect.",
+        "admin_url": "https://console.cloud.google.com/apis/credentials",
+        "lookup_command": "echo '{\"client_id\":\"...\",\"client_secret\":\"...\"}'",
+        "required_roles": ["roles/oauthconfig.editor", "roles/serviceusage.serviceUsageAdmin"],
+        "help_center_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/calendar",
+    },
 }
+
+
+def is_workspace_actions_enabled(tfvars):
+    """Return True if Google Workspace Actions are enabled globally or on any Workspace connector."""
+    if not tfvars:
+        return False
+    if bool(tfvars.get("enable_workspace_actions", False)):
+        return True
+    wcfg = tfvars.get("workspace_actions_config")
+    if isinstance(wcfg, dict):
+        for _conn, cfg in wcfg.items():
+            if isinstance(cfg, dict) and bool(cfg.get("enable_actions", False)):
+                return True
+    return False
 
 
 def is_placeholder(val):
@@ -220,10 +289,79 @@ def is_placeholder(val):
     return False
 
 
+def _parse_flat_map(raw_map):
+    """Parse a flat HCL map body into a Python dict."""
+    inner = {}
+    for mk, raw_items in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*\[(.*?)\]', raw_map, re.DOTALL):
+        inner[mk] = re.findall(r'["\']([^"\']*)["\']', raw_items)
+    raw_map_clean = re.sub(r'([a-zA-Z0-9_-]+)\s*=\s*\[.*?\]', '', raw_map, flags=re.DOTALL)
+    for mk, mv in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"', raw_map_clean):
+        if mk not in inner:
+            inner[mk] = mv
+    for mk, mv in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*([a-zA-Z0-9_./:-]+)\b', raw_map_clean):
+        if mk not in inner:
+            if mv.lower() == "true":
+                inner[mk] = True
+            elif mv.lower() == "false":
+                inner[mk] = False
+            elif mv.lower() == "null":
+                inner[mk] = None
+            elif mv.isdigit():
+                inner[mk] = int(mv)
+            else:
+                inner[mk] = mv
+    return inner
+
+
+def _extract_balanced_blocks(text):
+    """Extract top-level `key = { ... }` blocks using balanced brace counting."""
+    blocks = []
+    spans = []
+    pattern = re.compile(r'^[ \t]*([a-zA-Z0-9_-]+)[ \t]*=[ \t]*\{', re.MULTILINE)
+    pos = 0
+    while pos < len(text):
+        m = pattern.search(text, pos)
+        if not m:
+            break
+        key = m.group(1)
+        brace_start = m.end() - 1
+        depth = 0
+        i = brace_start
+        in_str = False
+        while i < len(text):
+            ch = text[i]
+            if ch == '"' and (i == 0 or text[i - 1] != '\\'):
+                in_str = not in_str
+            elif not in_str:
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        break
+            i += 1
+        if depth == 0 and i < len(text):
+            blocks.append((key, text[brace_start + 1:i]))
+            spans.append((m.start(), i + 1))
+            pos = i + 1
+        else:
+            pos = m.end()
+
+    if not spans:
+        return blocks, text
+    parts = []
+    last = 0
+    for s, e in spans:
+        parts.append(text[last:s])
+        last = e
+    parts.append(text[last:])
+    return blocks, "".join(parts)
+
+
 def parse_tfvars(tfvars_path):
     """
     Lightweight, robust parser for terraform.tfvars without external dependencies.
-    Extracts strings, booleans, lists, and maps.
+    Extracts strings, booleans, lists, and maps (including nested map-of-objects).
     """
     if not os.path.exists(tfvars_path):
         return None
@@ -240,31 +378,18 @@ def parse_tfvars(tfvars_path):
         lines.append(line)
     clean_text = "\n".join(lines)
 
-    # Match maps: key = { ... }
-    map_matches = re.findall(r'^\s*([a-zA-Z0-9_-]+)\s*=\s*\{(.*?)\}', clean_text, re.MULTILINE | re.DOTALL)
-    for k, raw_map in map_matches:
-        inner = {}
-        for mk, raw_items in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*\[(.*?)\]', raw_map, re.DOTALL):
-            inner[mk] = re.findall(r'["\']([^"\']*)["\']', raw_items)
-        raw_map_clean = re.sub(r'([a-zA-Z0-9_-]+)\s*=\s*\[.*?\]', '', raw_map, flags=re.DOTALL)
-        for mk, mv in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"', raw_map_clean):
-            if mk not in inner:
-                inner[mk] = mv
-        for mk, mv in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*([a-zA-Z0-9_./:-]+)\b', raw_map_clean):
-            if mk not in inner:
-                if mv.lower() == "true":
-                    inner[mk] = True
-                elif mv.lower() == "false":
-                    inner[mk] = False
-                elif mv.lower() == "null":
-                    inner[mk] = None
-                elif mv.isdigit():
-                    inner[mk] = int(mv)
-                else:
-                    inner[mk] = mv
-        data[k] = inner
-
-    text_without_maps = re.sub(r'^\s*[a-zA-Z0-9_-]+\s*=\s*\{.*?\}', '', clean_text, flags=re.MULTILINE | re.DOTALL)
+    # Extract top-level maps using balanced brace matching
+    map_blocks, text_without_maps = _extract_balanced_blocks(clean_text)
+    for k, raw_map in map_blocks:
+        raw_map_no_empty = re.sub(r'([a-zA-Z0-9_-]+)\s*=\s*\{\s*\}', '', raw_map)
+        sub_blocks, remainder = _extract_balanced_blocks(raw_map_no_empty)
+        if sub_blocks:
+            nested = _parse_flat_map(remainder)
+            for sk, sraw in sub_blocks:
+                nested[sk] = _parse_flat_map(sraw)
+            data[k] = nested
+        else:
+            data[k] = _parse_flat_map(raw_map_no_empty)
 
     # Match strings
     for k, v in re.findall(r'^\s*([a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"', text_without_maps, re.MULTILINE):
@@ -387,7 +512,45 @@ def get_interactive_questions():
                 for opt in CONNECTOR_OPTIONS
             ],
             "default": ["workspace"],
-        }
+        },
+        {
+            "id": "geap_governance_mode",
+            "header": "GEAP Agent Governance",
+            "question": "Do you want to enable the GEAP Agent Governance Foundation (Agent Registry, Gateway, Model Armor & Topology APIs) during onboarding, or skip it?",
+            "type": "single_select",
+            "is_multi_select": False,
+            "options": [
+                {
+                    "value": opt["value"],
+                    "label": opt["label"],
+                    "description": opt["description"],
+                    "docs_url": opt["docs_url"],
+                    "help_url": opt["docs_url"],
+                    "doc_url": opt["docs_url"],
+                }
+                for opt in GEAP_GOVERNANCE_OPTIONS
+            ],
+            "default": "none",
+        },
+        {
+            "id": "enable_workspace_actions",
+            "header": "Google Workspace Actions",
+            "question": "Do you want to enable Google Workspace Actions (create/update Calendar events, send/reply/label Gmail, folder/copy/upload Drive files, manage Chat spaces) across the Workspace connectors?",
+            "type": "single_select",
+            "is_multi_select": False,
+            "options": [
+                {
+                    "value": opt["value"],
+                    "label": opt["label"],
+                    "description": opt["description"],
+                    "docs_url": opt["docs_url"],
+                    "help_url": opt["docs_url"],
+                    "doc_url": opt["docs_url"],
+                }
+                for opt in WORKSPACE_ACTIONS_OPTIONS
+            ],
+            "default": "false",
+        },
     ]
 
 
@@ -489,11 +652,54 @@ def audit_inputs(tfvars=None, planned_connectors=None, workdir="."):
         else:
             configured_variables["slack_instance_uri"] = slack_uri
 
+    # 4. Workspace Actions OAuth variables if workspace actions enabled
+    if is_workspace_actions_enabled(tfvars):
+        has_ws_oauth = (
+            bool(os.environ.get("TF_VAR_workspace_oauth")) or
+            bool(os.environ.get("TF_VAR_workspace_auth")) or
+            os.path.exists(os.path.join(workdir, ".env.workspace")) or
+            (isinstance(tfvars.get("workspace_oauth"), dict) and bool(tfvars["workspace_oauth"].get("client_id"))) or
+            (isinstance(tfvars.get("workspace_auth"), dict) and bool(tfvars["workspace_auth"].get("client_id")))
+        )
+        meta_ws_oauth = VARIABLE_METADATA["workspace_oauth"]
+        if not has_ws_oauth:
+            missing_variables.append({
+                "name": "workspace_oauth",
+                "description": meta_ws_oauth["description"],
+                "connector": meta_ws_oauth["connector"],
+                "where_to_get": meta_ws_oauth["where_to_get"],
+                "admin_url": meta_ws_oauth["admin_url"],
+                "lookup_command": meta_ws_oauth["lookup_command"],
+                "required_roles": meta_ws_oauth["required_roles"],
+                "required_iam_roles": meta_ws_oauth["required_roles"],
+                "help_center_url": meta_ws_oauth["help_center_url"],
+                "help_url": meta_ws_oauth["help_center_url"],
+            })
+        else:
+            configured_variables["workspace_oauth"] = "********"
+
     # Add other configured variables from tfvars
     for k, v in tfvars.items():
         if k not in configured_variables and not is_placeholder(v):
-            if k not in ["jira_config", "confluence_config", "slack_config", "people_directory_config"]:
+            if k not in ["jira_config", "confluence_config", "slack_config", "people_directory_config", "workspace_actions_config", "extra_data_store_ids"]:
                 configured_variables[k] = v
+
+    gov_mode = str(tfvars.get("geap_governance_mode", "none")).strip().lower() or "none"
+    if gov_mode not in ("none", "foundation"):
+        missing_variables.append({
+            "name": "geap_governance_mode",
+            "description": "Optional GEAP Agent Governance posture ('none' or 'foundation')",
+            "connector": "foundation",
+            "where_to_get": "Choose 'foundation' to enable Agent Registry, Gateway, Model Armor & Topology APIs + Admin IAM, or 'none' to skip.",
+            "admin_url": "https://console.cloud.google.com/agent-registry",
+            "lookup_command": "echo 'foundation'",
+            "required_roles": ["roles/serviceusage.serviceUsageAdmin", "roles/resourcemanager.projectIamAdmin"],
+            "required_iam_roles": ["roles/serviceusage.serviceUsageAdmin", "roles/resourcemanager.projectIamAdmin"],
+            "help_center_url": "https://docs.cloud.google.com/agent-registry/overview",
+            "help_url": "https://docs.cloud.google.com/agent-registry/overview",
+        })
+    else:
+        configured_variables["geap_governance_mode"] = gov_mode
 
     status = "ok" if not missing_variables else "missing_variables"
     return {
@@ -501,6 +707,7 @@ def audit_inputs(tfvars=None, planned_connectors=None, workdir="."):
         "configured_variables": configured_variables,
         "missing_variables": missing_variables,
         "planned_connectors": planned_connectors,
+        "geap_governance_mode": gov_mode if gov_mode in ("none", "foundation") else "none",
     }
 
 
@@ -543,6 +750,43 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
             content = re.sub(r'(^\s*enable_connectors\s*=.*$)', f"{line}\n\\1", content, flags=re.MULTILINE)
         else:
             content += f"\n{line}\n"
+
+    # 1.5 Update geap_governance_mode
+    if "geap_governance_mode" in updates and updates["geap_governance_mode"] is not None:
+        gov_val = str(updates["geap_governance_mode"]).strip().lower()
+        gov_line = f'geap_governance_mode = "{gov_val}"'
+        if re.search(r'^\s*geap_governance_mode\s*=.*$', content, re.MULTILINE):
+            content = re.sub(r'^\s*geap_governance_mode\s*=.*$', gov_line, content, flags=re.MULTILINE)
+        elif re.search(r'^\s*planned_connectors\s*=.*$', content, re.MULTILINE):
+            content = re.sub(r'(^\s*planned_connectors\s*=.*$)', f"\\1\n{gov_line}", content, flags=re.MULTILINE)
+        elif re.search(r'^\s*enable_connectors\s*=.*$', content, re.MULTILINE):
+            content = re.sub(r'(^\s*enable_connectors\s*=.*$)', f"{gov_line}\n\\1", content, flags=re.MULTILINE)
+        else:
+            content += f"\n{gov_line}\n"
+
+    # 1.6 Update enable_workspace_actions and workspace_actions_config
+    if "enable_workspace_actions" in updates and updates["enable_workspace_actions"] is not None:
+        raw_ws_act = updates["enable_workspace_actions"]
+        ws_act_bool = raw_ws_act if isinstance(raw_ws_act, bool) else str(raw_ws_act).strip().lower() in ("true", "1", "yes", "enable", "enabled")
+        ws_act_str = "true" if ws_act_bool else "false"
+        ws_act_line = f"enable_workspace_actions = {ws_act_str}"
+        if re.search(r'^\s*enable_workspace_actions\s*=.*$', content, re.MULTILINE):
+            content = re.sub(r'^\s*enable_workspace_actions\s*=.*$', ws_act_line, content, flags=re.MULTILINE)
+        elif re.search(r'^\s*workspace_connectors\s*=.*$', content, re.MULTILINE):
+            content = re.sub(r'(^\s*workspace_connectors\s*=.*$)', f"\\1\n{ws_act_line}", content, flags=re.MULTILINE)
+        else:
+            content += f"\n{ws_act_line}\n"
+
+        def replace_ws_actions_block(m):
+            block = m.group(0)
+            return re.sub(r'(enable_actions\s*=\s*)(true|false)\b', f'\\g<1>{ws_act_str}', block)
+
+        content = re.sub(
+            r'workspace_actions_config\s*=\s*\{(?:\s*[a-z_]+\s*=\s*\{.*?\}\s*)+\}',
+            replace_ws_actions_block,
+            content,
+            flags=re.DOTALL,
+        )
 
     # 2. Update enable_* flags
     for flag in ["enable_connectors", "enable_jira_connector", "enable_confluence_connector", "enable_slack_connector", "enable_people_directory_connector"]:
@@ -595,6 +839,8 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
     # 4. Update top-level variables
     skip_keys = {
         "planned_connectors",
+        "geap_governance_mode",
+        "enable_workspace_actions",
         "enable_connectors",
         "enable_jira_connector",
         "enable_confluence_connector",
@@ -700,6 +946,11 @@ def print_boxed_help(topic=None):
     print("│      (Lookup command: gcloud billing accounts list)                        │")
     print("│    • Workspace Customer ID: https://admin.google.com/ac/accountsettings     │")
     print("│      (Account settings > Profile > Customer ID, e.g. C01234567)            │")
+    print("│                                                                            │")
+    print("│ 6. Optional GEAP Agent Governance Foundation (Mode 2: 'foundation')        │")
+    print("│    • Agent Registry Docs: https://docs.cloud.google.com/agent-registry/    │")
+    print("│      overview                                                              │")
+    print("│    • Enables 16 GEAP APIs, 4 P4SAs & Admin Group IAM (0 agents required)   │")
     print("└" + "─" * (width - 2) + "┘")
     print()
 
@@ -890,13 +1141,153 @@ def interactive_combo_box(prompt_title, options, default_values=None):
     return [opt["value"] for opt in options if opt["value"] in selected]
 
 
+def fallback_single_select(prompt_title, options, default_value="none"):
+    """
+    Numbered single-select fallback for non-TTY streams or environments without termios.
+    """
+    default_idx = 1
+    for idx, opt in enumerate(options, 1):
+        if opt["value"] == default_value:
+            default_idx = idx
+            break
+
+    print(f"\n{prompt_title}")
+    for idx, opt in enumerate(options, 1):
+        is_def = opt["value"] == default_value
+        mark = " [default: YES]" if is_def else ""
+        print(f"  [{idx}] {opt['label']}{mark}")
+        print(f"      {opt['description']}")
+    print()
+    print(f"Type 1-{len(options)} (or 'none'/'foundation'), '?' for help, or Enter to accept default:")
+
+    while True:
+        sys.stdout.write(f"Selection [default: {default_idx}]: ")
+        sys.stdout.flush()
+        line = sys.stdin.readline()
+        if not line:
+            print()
+            return default_value
+        line = line.strip()
+        if not line:
+            return default_value
+        if line == "?":
+            print_boxed_help()
+            print(f"Type 1-{len(options)} (or 'none'/'foundation'), '?' for help, or Enter to accept default:")
+            continue
+
+        token = line.lower()
+        if token.isdigit():
+            idx = int(token) - 1
+            if 0 <= idx < len(options):
+                return options[idx]["value"]
+        else:
+            if token in ("skip", "no", "false"):
+                for opt in options:
+                    if opt["value"] in ("none", "false"):
+                        return opt["value"]
+                return "none"
+            if token in ("enable", "yes", "true"):
+                for opt in options:
+                    if opt["value"] in ("foundation", "true"):
+                        return opt["value"]
+                return "foundation"
+            for opt in options:
+                if token == opt["value"].lower() or token in opt["label"].lower():
+                    return opt["value"]
+        print("Invalid selection. Please enter a number matching an option above, or '?' for help.")
+
+
+def interactive_single_select(prompt_title, options, default_value="none"):
+    """
+    Render ANSI arrow-key ([↑/↓]) radio-button single-select UI ((●) / ( )).
+    Falls back gracefully if raw terminal is unavailable.
+    """
+    if not (TERMIOS_AVAILABLE and sys.stdin.isatty() and sys.stdout.isatty()):
+        return fallback_single_select(prompt_title, options, default_value)
+
+    cursor = 0
+    for i, opt in enumerate(options):
+        if opt["value"] == default_value:
+            cursor = i
+            break
+    selected_val = options[cursor]["value"]
+    show_help = False
+    last_line_count = 0
+
+    def render():
+        nonlocal last_line_count
+        lines = []
+        if last_line_count > 0:
+            for _ in range(last_line_count):
+                sys.stdout.write("\033[F\033[K")
+
+        lines.append(f"\n{prompt_title}")
+        for i, opt in enumerate(options):
+            val = opt["value"]
+            is_sel = (val == selected_val)
+            is_cur = (i == cursor)
+            radio = "(●)" if is_sel else "( )"
+            pointer = "❯ " if is_cur else "  "
+            lines.append(f" {pointer}{radio} {opt['label']}")
+            lines.append(f"      {opt['description']}")
+        lines.append("")
+        lines.append(" [↑/↓] Navigate   [Space] Select   [?] Help Guide   [Enter] Confirm")
+
+        if show_help:
+            lines.append("┌" + "─" * 76 + "┐")
+            lines.append("│ GEAP AGENT GOVERNANCE — Mode 1 ('none') vs Mode 2 ('foundation')".center(78) + "│")
+            lines.append("├" + "─" * 76 + "┤")
+            lines.append("│ • Mode 1 ('none'):       Gemini Enterprise Search, Assistant & Connectors │")
+            lines.append("│ • Mode 2 ('foundation'): Enables Agent Registry, Agent Identity, Gateway, │")
+            lines.append("│                          Model Armor & Topology APIs + Admin Group IAM    │")
+            lines.append("│ • Docs: https://docs.cloud.google.com/agent-registry/overview             │")
+            lines.append("└" + "─" * 76 + "┘")
+
+        output_str = "\n".join(lines) + "\n"
+        sys.stdout.write(output_str)
+        sys.stdout.flush()
+        last_line_count = len(lines) + 1
+
+    try:
+        with RawTerminal():
+            render()
+            while True:
+                key = read_terminal_key()
+                if key in ("UP", "k"):
+                    cursor = (cursor - 1) % len(options)
+                    selected_val = options[cursor]["value"]
+                    render()
+                elif key in ("DOWN", "j"):
+                    cursor = (cursor + 1) % len(options)
+                    selected_val = options[cursor]["value"]
+                    render()
+                elif key == "SPACE":
+                    selected_val = options[cursor]["value"]
+                    render()
+                elif key == "?":
+                    show_help = not show_help
+                    render()
+                elif key == "ENTER":
+                    selected_val = options[cursor]["value"]
+                    break
+                elif key == "QUIT":
+                    break
+    except Exception:
+        return fallback_single_select(prompt_title, options, default_value)
+
+    return selected_val
+
+
 def print_human_audit(stage, planned_connectors, audit_data):
     """Print human-readable variable audit status table."""
+    gov_mode = audit_data.get("geap_governance_mode", "none")
+    gov_label = "foundation (Enabled — Underlying APIs, P4SAs & Admin IAM)" if gov_mode == "foundation" else "none (Skipped — Gemini Enterprise Only)"
     print("=" * 80)
     print("GEMINI PRISM — INPUT VARIABLE & CONNECTOR AUDIT")
     print("=" * 80)
     print(f"Stage              : {stage}")
     print(f"Planned Connectors : {', '.join(planned_connectors)}")
+    print(f"GEAP Governance    : {gov_label}")
     status_str = "OK — All required variables are configured!" if audit_data["status"] == "ok" else f"MISSING VARIABLES ({len(audit_data['missing_variables'])} missing / placeholder)"
     print(f"Audit Status       : {status_str}")
     print()
@@ -1049,6 +1440,144 @@ def enable_connectors(workdir=".", state_path=None, tfvars_path=None, json_outpu
     sys.exit(0)
 
 
+def resolve_workspace_oauth(tfvars=None, workdir="."):
+    """Resolve Workspace 3LO OAuth client_id and client_secret from environment, .env.workspace, or tfvars."""
+    for env_key in ("TF_VAR_workspace_oauth", "TF_VAR_workspace_auth"):
+        raw = os.environ.get(env_key, "").strip()
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict) and parsed.get("client_id"):
+                    return str(parsed.get("client_id", "")).strip(), str(parsed.get("client_secret", "")).strip()
+            except Exception:
+                pass
+
+    env_file = os.path.join(workdir, ".env.workspace")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                content = f.read()
+            for match in re.finditer(r"TF_VAR_workspace_(?:oauth|auth)\s*=\s*['\"]?(\{.*?\})['\"]?", content):
+                parsed = json.loads(match.group(1))
+                if isinstance(parsed, dict) and parsed.get("client_id"):
+                    return str(parsed.get("client_id", "")).strip(), str(parsed.get("client_secret", "")).strip()
+        except Exception:
+            pass
+
+    if isinstance(tfvars, dict):
+        for key in ("workspace_oauth", "workspace_auth"):
+            val = tfvars.get(key)
+            if isinstance(val, dict) and val.get("client_id"):
+                return str(val.get("client_id", "")).strip(), str(val.get("client_secret", "")).strip()
+
+    return "", ""
+
+
+def sync_workspace_actions(workdir=".", state_path=None, tfvars_path=None):
+    """
+    Persist actionConfig.isActionConfigured = true in Spanner for enabled Workspace action connectors.
+    Because ActionConfig.is_action_configured is marked OUTPUT_ONLY in data_connector.proto,
+    Terraform's google_discovery_engine_data_connector omits it on create/update.
+    """
+    actual_tfvars = tfvars_path or os.path.join(workdir, "terraform.tfvars")
+    actual_state = state_path or os.path.join(workdir, "terraform.tfstate")
+    tfvars = parse_tfvars(actual_tfvars) or {}
+
+    if not is_workspace_actions_enabled(tfvars):
+        return 0
+
+    client_id, client_secret = resolve_workspace_oauth(tfvars, workdir=workdir)
+    if not client_id:
+        print("[WARN] Workspace Actions enabled, but OAuth client_id not found; skipping actionConfig sync.", file=sys.stderr)
+        return 0
+
+    if not os.path.exists(actual_state):
+        return 0
+
+    try:
+        with open(actual_state, "r", encoding="utf-8") as f:
+            state = json.load(f)
+    except Exception as e:
+        print(f"[WARN] Could not read state file {actual_state}: {e}", file=sys.stderr)
+        return 0
+
+    token = os.environ.get("GOOGLE_OAUTH_ACCESS_TOKEN", "").strip()
+    if not token:
+        try:
+            res = subprocess.run(
+                ["gcloud", "auth", "print-access-token"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if res.returncode == 0:
+                token = res.stdout.strip()
+        except Exception:
+            pass
+
+    if not token:
+        print("[WARN] Could not obtain GCP access token for Workspace actionConfig sync.", file=sys.stderr)
+        return 0
+
+    ws_sources = {"google_calendar", "google_mail", "google_drive", "google_chat"}
+    synced = 0
+    for resource in state.get("resources", []):
+        if resource.get("type") != "google_discovery_engine_data_connector":
+            continue
+        for inst in resource.get("instances", []):
+            if inst.get("deposed"):
+                continue
+            attrs = inst.get("attributes", {})
+            data_source = attrs.get("data_source", "")
+            modes = attrs.get("connector_modes") or []
+            if data_source not in ws_sources or "ACTIONS" not in modes:
+                continue
+            project = attrs.get("project", "")
+            location = attrs.get("location", "global")
+            collection_id = attrs.get("collection_id", "")
+            if not (project and collection_id):
+                continue
+
+            url = (
+                f"https://discoveryengine.googleapis.com/v1alpha/projects/{project}"
+                f"/locations/{location}/collections/{collection_id}/dataConnector?updateMask=actionConfig"
+            )
+            action_params = {"auth_type": "OAUTH", "client_id": client_id}
+            if client_secret:
+                action_params["client_secret"] = client_secret
+
+            payload = {
+                "name": f"projects/{project}/locations/{location}/collections/{collection_id}/dataConnector",
+                "actionConfig": {
+                    "isActionConfigured": True,
+                    "createBapConnection": True,
+                    "actionParams": action_params,
+                },
+            }
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                    "X-Goog-User-Project": project,
+                },
+                method="PATCH",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    resp.read()
+                print(f"[SYNC] Persisted actionConfig.isActionConfigured=true for {collection_id} ({data_source}) in {project}")
+                synced += 1
+            except urllib.error.HTTPError as e:
+                err_body = e.read().decode("utf-8", errors="replace")
+                print(f"[WARN] Failed to sync actionConfig for {collection_id} ({data_source}): HTTP {e.code} {err_body}", file=sys.stderr)
+            except Exception as e:
+                print(f"[WARN] Failed to sync actionConfig for {collection_id} ({data_source}): {e}", file=sys.stderr)
+
+    return synced
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Interactive Connector Onboarding Wizard & Input Variable Configuration Engine."
@@ -1057,6 +1586,9 @@ def main():
     parser.add_argument("--json", action="store_true", help="Output audit or operation result in JSON format.")
     parser.add_argument("--apply-json", help="JSON string containing configuration to apply non-interactively.")
     parser.add_argument("--connectors", help="Comma-separated list of planned connectors (workspace,jira,confluence,slack,people_directory).")
+    parser.add_argument("--governance-mode", help="Optional GEAP Agent Governance posture: 'none' (skip) or 'foundation' (enable underlying APIs & Admin IAM).")
+    parser.add_argument("--workspace-actions", help="Optional Google Workspace Actions toggle: 'true'/'enable' or 'false'/'skip'.")
+    parser.add_argument("--sync-workspace-actions", action="store_true", help="Persist actionConfig.isActionConfigured=true for Workspace action connectors after Terraform apply.")
     parser.add_argument("--set", action="append", default=[], help="Set variable key=value (can be used multiple times).")
     parser.add_argument("--enable-connectors", action="store_true", help="Stage 2 helper: Validate prerequisites and flip enable_* = true.")
     parser.add_argument("--workdir", default=".", help="Root directory of Terraform configuration.")
@@ -1069,13 +1601,18 @@ def main():
     tfvars_path = os.path.abspath(args.tfvars_file) if args.tfvars_file else os.path.join(workdir, "terraform.tfvars")
     state_path = os.path.abspath(args.state_file) if args.state_file else os.path.join(workdir, "terraform.tfstate")
 
+    # 0. Post-Apply Workspace ActionConfig Sync
+    if args.sync_workspace_actions:
+        sync_workspace_actions(workdir=workdir, state_path=state_path, tfvars_path=tfvars_path)
+        sys.exit(0)
+
     # 1. Stage 2 Enablement Helper
     if args.enable_connectors:
         enable_connectors(workdir=workdir, state_path=state_path, tfvars_path=tfvars_path, json_output=args.json)
         return
 
     # 2. Check / Audit Mode
-    if args.check or (args.json and not args.apply_json and not args.connectors and not args.set):
+    if args.check or (args.json and not args.apply_json and not args.connectors and not args.governance_mode and not args.workspace_actions and not args.set):
         tfvars = parse_tfvars(tfvars_path) or {}
         planned = tfvars.get("planned_connectors", ["workspace"])
         stage = determine_stage(workdir, state_path, tfvars_path)
@@ -1089,6 +1626,8 @@ def main():
                 "configured_variables": audit_data["configured_variables"],
                 "missing_variables": audit_data["missing_variables"],
                 "planned_connectors": planned,
+                "geap_governance_mode": audit_data["geap_governance_mode"],
+                "enable_workspace_actions": is_workspace_actions_enabled(tfvars),
             }
             print(json.dumps(result, indent=2))
         else:
@@ -1096,9 +1635,9 @@ def main():
 
         sys.exit(0 if audit_data["status"] == "ok" else 1)
 
-    # 3. Non-Interactive Apply Mode (--apply-json, --connectors, --set)
+    # 3. Non-Interactive Apply Mode (--apply-json, --connectors, --governance-mode, --workspace-actions, --set)
     updates = {}
-    is_apply_mode = (args.apply_json is not None) or bool(args.connectors) or bool(args.set)
+    is_apply_mode = (args.apply_json is not None) or bool(args.connectors) or bool(args.governance_mode) or (args.workspace_actions is not None) or bool(args.set)
     if args.apply_json is not None:
         try:
             payload = json.loads(args.apply_json)
@@ -1113,6 +1652,16 @@ def main():
     if args.connectors:
         selected_connectors = [c.strip() for c in args.connectors.split(",") if c.strip()]
         updates["planned_connectors"] = selected_connectors
+
+    if args.governance_mode is not None:
+        updates["geap_governance_mode"] = args.governance_mode.strip().lower()
+
+    if args.workspace_actions is not None:
+        raw_wa = args.workspace_actions.strip().lower()
+        if raw_wa not in ("true", "false", "yes", "no", "enable", "enabled", "skip", "disabled", "1", "0"):
+            print(f"Error: Invalid --workspace-actions '{args.workspace_actions}'. Allowed: 'true', 'false', 'enable', 'skip'", file=sys.stderr)
+            sys.exit(1)
+        updates["enable_workspace_actions"] = raw_wa in ("true", "yes", "enable", "enabled", "1")
 
     for item in args.set:
         pairs = item.split(",")
@@ -1145,6 +1694,13 @@ def main():
                     print(f"Error: Invalid connector '{c}'. Allowed: 'workspace', 'jira', 'confluence', 'slack', 'people_directory'", file=sys.stderr)
                     sys.exit(1)
 
+        if "geap_governance_mode" in updates:
+            gov_mode = updates["geap_governance_mode"]
+            if not isinstance(gov_mode, str) or gov_mode.strip().lower() not in {"none", "foundation"}:
+                print(f"Error: Invalid geap_governance_mode '{gov_mode}'. Allowed: 'none', 'foundation'", file=sys.stderr)
+                sys.exit(1)
+            updates["geap_governance_mode"] = gov_mode.strip().lower()
+
         stage = determine_stage(workdir, state_path, tfvars_path)
         update_tfvars(tfvars_path, updates, stage=stage, allow_enable=False, workdir=workdir)
 
@@ -1164,6 +1720,9 @@ def main():
     stage = determine_stage(workdir, state_path, tfvars_path)
     tfvars = parse_tfvars(tfvars_path) or {}
     current_planned = tfvars.get("planned_connectors", ["workspace"])
+    current_gov_mode = str(tfvars.get("geap_governance_mode", "none")).strip().lower()
+    if current_gov_mode not in ("none", "foundation"):
+        current_gov_mode = "none"
 
     prompt_title = "Select planned enterprise connectors for Gemini Enterprise:"
     if args.non_interactive or not sys.stdin.isatty():
@@ -1171,9 +1730,25 @@ def main():
     else:
         chosen_connectors = interactive_combo_box(prompt_title, CONNECTOR_OPTIONS, current_planned)
 
+    gov_prompt_title = "Optional GEAP Agent Governance — enable underlying APIs & Admin IAM during onboarding or skip?"
+    if args.non_interactive or not sys.stdin.isatty():
+        chosen_gov_mode = fallback_single_select(gov_prompt_title, GEAP_GOVERNANCE_OPTIONS, current_gov_mode)
+    else:
+        chosen_gov_mode = interactive_single_select(gov_prompt_title, GEAP_GOVERNANCE_OPTIONS, current_gov_mode)
+
     wizard_updates = {
-        "planned_connectors": chosen_connectors
+        "planned_connectors": chosen_connectors,
+        "geap_governance_mode": chosen_gov_mode,
     }
+
+    if "workspace" in chosen_connectors:
+        current_ws_actions = "true" if is_workspace_actions_enabled(tfvars) else "false"
+        ws_actions_prompt = "Google Workspace Actions — enable write actions (Gmail, Calendar, Drive & Chat) or federated search only?"
+        if args.non_interactive or not sys.stdin.isatty():
+            chosen_ws_actions_str = fallback_single_select(ws_actions_prompt, WORKSPACE_ACTIONS_OPTIONS, current_ws_actions)
+        else:
+            chosen_ws_actions_str = interactive_single_select(ws_actions_prompt, WORKSPACE_ACTIONS_OPTIONS, current_ws_actions)
+        wizard_updates["enable_workspace_actions"] = (chosen_ws_actions_str == "true")
 
     # If Jira is planned, prompt for site URI if missing/placeholder
     if "jira" in chosen_connectors:
@@ -1215,6 +1790,7 @@ def main():
     print("=" * 80)
     print(f"[SUCCESS] Configuration saved to {tfvars_path}:")
     print(f"  • planned_connectors                = {json.dumps(chosen_connectors)}")
+    print(f"  • geap_governance_mode              = \"{chosen_gov_mode}\"")
     print(f"  • enable_connectors                 = false (Stage 0 safety)")
     print(f"  • enable_jira_connector             = false (Stage 0 safety)")
     print(f"  • enable_confluence_connector       = false (Stage 0 safety)")

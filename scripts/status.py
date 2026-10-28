@@ -38,10 +38,80 @@ PLACEHOLDER_STRINGS = {
 }
 
 
+def _parse_flat_map(raw_map):
+    """Parse a flat HCL map body into a Python dict."""
+    inner = {}
+    for mk, raw_items in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*\[(.*?)\]', raw_map, re.DOTALL):
+        inner[mk] = re.findall(r'["\']([^"\']*)["\']', raw_items)
+    raw_map_clean = re.sub(r'([a-zA-Z0-9_-]+)\s*=\s*\[.*?\]', '', raw_map, flags=re.DOTALL)
+    for mk, mv in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"', raw_map_clean):
+        if mk not in inner:
+            inner[mk] = mv
+    for mk, mv in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*([a-zA-Z0-9_./:-]+)\b', raw_map_clean):
+        if mk not in inner:
+            if mv.lower() == "true":
+                inner[mk] = True
+            elif mv.lower() == "false":
+                inner[mk] = False
+            elif mv.lower() == "null":
+                inner[mk] = None
+            elif mv.isdigit():
+                inner[mk] = int(mv)
+            else:
+                inner[mk] = mv
+    return inner
+
+
+def _extract_balanced_blocks(text):
+    """Extract top-level `key = { ... }` blocks using balanced brace counting."""
+    blocks = []
+    spans = []
+    pattern = re.compile(r'^[ \t]*([a-zA-Z0-9_-]+)[ \t]*=[ \t]*\{', re.MULTILINE)
+    pos = 0
+    while pos < len(text):
+        m = pattern.search(text, pos)
+        if not m:
+            break
+        key = m.group(1)
+        brace_start = m.end() - 1
+        depth = 0
+        i = brace_start
+        in_str = False
+        while i < len(text):
+            ch = text[i]
+            if ch == '"' and (i == 0 or text[i - 1] != '\\'):
+                in_str = not in_str
+            elif not in_str:
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        break
+            i += 1
+        if depth == 0 and i < len(text):
+            blocks.append((key, text[brace_start + 1:i]))
+            spans.append((m.start(), i + 1))
+            pos = i + 1
+        else:
+            pos = m.end()
+
+    # Build text without the extracted blocks
+    if not spans:
+        return blocks, text
+    parts = []
+    last = 0
+    for s, e in spans:
+        parts.append(text[last:s])
+        last = e
+    parts.append(text[last:])
+    return blocks, "".join(parts)
+
+
 def parse_tfvars(tfvars_path):
     """
     Lightweight, robust parser for terraform.tfvars without external dependencies.
-    Extracts string, boolean, list, and map values.
+    Extracts string, boolean, list, and map (including nested map-of-objects) values.
     """
     if not os.path.exists(tfvars_path):
         return None
@@ -58,38 +128,19 @@ def parse_tfvars(tfvars_path):
         lines.append(line)
     clean_text = "\n".join(lines)
 
-    # Strip inline empty maps (e.g. extra_params = {}) before matching top-level maps
-    clean_text_for_maps = re.sub(r'([a-zA-Z0-9_-]+)\s*=\s*\{\s*\}', '', clean_text)
-
-    # Match maps first: key = { ... }
-    map_matches = re.findall(r'^\s*([a-zA-Z0-9_-]+)\s*=\s*\{(.*?)\}', clean_text_for_maps, re.MULTILINE | re.DOTALL)
-    for k, raw_map in map_matches:
-        inner = {}
-        # Parse lists inside map: key = ["a", "b"] or key = ['a', 'b']
-        for mk, raw_items in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*\[(.*?)\]', raw_map, re.DOTALL):
-            inner[mk] = re.findall(r'["\']([^"\']*)["\']', raw_items)
-        raw_map_clean = re.sub(r'([a-zA-Z0-9_-]+)\s*=\s*\[.*?\]', '', raw_map, flags=re.DOTALL)
-        # Parse strings inside map: key = "value"
-        for mk, mv in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"', raw_map_clean):
-            if mk not in inner:
-                inner[mk] = mv
-        # Parse booleans, numbers, or identifiers: key = true / false / 123 / null
-        for mk, mv in re.findall(r'([a-zA-Z0-9_-]+)\s*=\s*([a-zA-Z0-9_./:-]+)\b', raw_map_clean):
-            if mk not in inner:
-                if mv.lower() == "true":
-                    inner[mk] = True
-                elif mv.lower() == "false":
-                    inner[mk] = False
-                elif mv.lower() == "null":
-                    inner[mk] = None
-                elif mv.isdigit():
-                    inner[mk] = int(mv)
-                else:
-                    inner[mk] = mv
-        data[k] = inner
-
-    # Remove maps from text to prevent top-level regex from colliding with map keys
-    text_without_maps = re.sub(r'^\s*[a-zA-Z0-9_-]+\s*=\s*\{.*?\}', '', clean_text_for_maps, flags=re.MULTILINE | re.DOTALL)
+    # Extract top-level maps using balanced brace matching
+    map_blocks, text_without_maps = _extract_balanced_blocks(clean_text)
+    for k, raw_map in map_blocks:
+        # Strip inline empty maps (e.g. extra_params = {}) before checking for nested sub-maps
+        raw_map_no_empty = re.sub(r'([a-zA-Z0-9_-]+)\s*=\s*\{\s*\}', '', raw_map)
+        sub_blocks, remainder = _extract_balanced_blocks(raw_map_no_empty)
+        if sub_blocks:
+            nested = _parse_flat_map(remainder)
+            for sk, sraw in sub_blocks:
+                nested[sk] = _parse_flat_map(sraw)
+            data[k] = nested
+        else:
+            data[k] = _parse_flat_map(raw_map_no_empty)
 
     # Match simple key = "value"
     str_matches = re.findall(r'^\s*([a-zA-Z0-9_-]+)\s*=\s*"([^"]*)"', text_without_maps, re.MULTILINE)
@@ -255,6 +306,22 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
             "owner": "human",
             "blockers": [f"Unresolved placeholder values in terraform.tfvars: {', '.join(placeholder_keys)}"],
             "next_action": f"Run 'make configure' to replace example placeholders ({', '.join(placeholder_keys)}) with customer parameters, or run 'make check-inputs'",
+            "handoff_template": "inputs",
+            "exit_code": 1
+        })
+
+    # Validate optional geap_governance_mode if specified
+    raw_gov_mode = tfvars.get("geap_governance_mode", "none")
+    geap_governance_mode = str(raw_gov_mode).strip().lower() if isinstance(raw_gov_mode, str) else "__invalid__"
+    if geap_governance_mode == "":
+        geap_governance_mode = "none"
+    if geap_governance_mode not in ("none", "foundation"):
+        return _enrich_stage0_interactive({
+            "phase": 0,
+            "phase_name": PHASES[0],
+            "owner": "human",
+            "blockers": [f"Invalid geap_governance_mode '{raw_gov_mode}' in terraform.tfvars. Allowed: 'none', 'foundation'"],
+            "next_action": "Run 'make configure' or set geap_governance_mode = \"none\" or \"foundation\" in terraform.tfvars",
             "handoff_template": "inputs",
             "exit_code": 1
         })
@@ -458,6 +525,33 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
                 "blockers": ["Planned People Directory connector pending enablement"],
                 "next_action": "Run 'make people-checklist', then run 'make enable-connectors'",
                 "handoff_template": "dwd",
+                "exit_code": 2
+            }
+
+    # Workspace actions credentials check if actions enabled
+    enable_workspace_actions = bool(tfvars.get("enable_workspace_actions", False))
+    ws_actions_cfg = tfvars.get("workspace_actions_config") or {}
+    any_ws_actions = enable_workspace_actions or (any(
+        isinstance(cfg, dict) and bool(cfg.get("enable_actions", False))
+        for cfg in ws_actions_cfg.values()
+    ) if isinstance(ws_actions_cfg, dict) else False)
+
+    if enable_connectors and any_ws_actions:
+        has_ws_oauth = (
+            bool(os.environ.get("TF_VAR_workspace_oauth")) or
+            bool(os.environ.get("TF_VAR_workspace_auth")) or
+            os.path.exists(os.path.join(workdir, ".env.workspace")) or
+            (isinstance(tfvars.get("workspace_oauth"), dict) and bool(tfvars["workspace_oauth"].get("client_id"))) or
+            (isinstance(tfvars.get("workspace_auth"), dict) and bool(tfvars["workspace_auth"].get("client_id")))
+        )
+        if not has_ws_oauth:
+            return {
+                "phase": 2,
+                "phase_name": "workspace_actions_authorization",
+                "owner": "human",
+                "blockers": ["Workspace Actions enabled but TF_VAR_workspace_oauth (Web OAuth 2.0 client_id & client_secret) is missing"],
+                "next_action": "make workspace-actions-checklist",
+                "handoff_template": "workspace_actions",
                 "exit_code": 2
             }
 
@@ -680,33 +774,40 @@ def determine_status(workdir, state_path=None, tfvars_path=None, skip_auth_check
         "blockers": [],
         "next_action": "make verify",
         "handoff_template": None,
+        "geap_governance_mode": geap_governance_mode,
         "exit_code": 0
     }
 
 
-def print_human_table(status_data):
+def print_human_table(status_data, workdir="."):
     """Render a clean, formatted terminal summary table."""
     phase = status_data["phase"]
     phase_name = status_data["phase_name"]
     owner = status_data["owner"]
     next_action = status_data["next_action"]
     blockers = status_data["blockers"]
+    gov_mode = status_data.get("geap_governance_mode")
+    if not gov_mode:
+        tfvars = parse_tfvars(os.path.join(workdir, "terraform.tfvars")) or {}
+        gov_mode = str(tfvars.get("geap_governance_mode", "none")).strip().lower() or "none"
+    gov_display = "foundation (Enabled — Registry, Gateway, Model Armor & Topology APIs)" if gov_mode == "foundation" else "none (Skipped — Gemini Enterprise Only)"
 
     print("\n================================================================================")
     print(" ═══╬─╱╲──✦  PRISM — GEMINI ENTERPRISE PROVISIONING STATUS")
     print("================================================================================")
-    print(f" Current Phase : Stage {phase} — {phase_name.replace('_', ' ').title()}")
-    print(f" Phase Owner   : {owner.upper()}")
-    print(f" Next Action   : {next_action}")
+    print(f" Current Phase   : Stage {phase} — {phase_name.replace('_', ' ').title()}")
+    print(f" Phase Owner     : {owner.upper()}")
+    print(f" GEAP Governance : {gov_display}")
+    print(f" Next Action     : {next_action}")
     if status_data.get("handoff_template"):
-        print(f" Gate Template : {status_data['handoff_template']}")
+        print(f" Gate Template   : {status_data['handoff_template']}")
 
     if blockers:
         print("\n Blockers / Action Required:")
         for b in blockers:
             print(f"   [!] {b}")
     else:
-        print("\n Status        : Ready to proceed.")
+        print("\n Status          : Ready to proceed.")
     print("================================================================================\n")
 
 
@@ -733,6 +834,15 @@ def print_dwd_checklist():
     for _env, info in data.items():
         pnum = info.get("project_number")
         pid = info.get("project_id")
+        info.setdefault("workspace_admin_settings_url", "https://admin.google.com")
+        info.setdefault(
+            "workspace_admin_checks",
+            [
+                "https://admin.google.com/ac/owl/domainwidedelegation -> Add API Client using 21-digit client_id (uniqueId) with oauth_scopes_csv",
+                "https://admin.google.com -> Generative AI > Gemini Enterprise -> Ensure Workspace data access is enabled for target OUs/groups",
+                "https://admin.google.com -> Security > Access and data control > API controls > Google Cloud Core Services -> Ensure GCP projects are permitted",
+            ],
+        )
         if tok and pnum:
             try:
                 url = f"https://serviceusage.googleapis.com/v1beta1/projects/{pnum}/services/discoveryengine.googleapis.com:generateServiceIdentity"
@@ -921,14 +1031,103 @@ def print_people_directory_checklist():
     print(json.dumps(data, indent=2))
 
 
+def print_geap_checklist():
+    """Fetch terraform geap_governance_checklist output (or fallback to terraform.tfvars) and output JSON."""
+    geap_apis = [
+        "serviceusage.googleapis.com",
+        "agentregistry.googleapis.com",
+        "agentidentity.googleapis.com",
+        "aiplatform.googleapis.com",
+        "networkservices.googleapis.com",
+        "networksecurity.googleapis.com",
+        "iap.googleapis.com",
+        "modelarmor.googleapis.com",
+        "logging.googleapis.com",
+        "monitoring.googleapis.com",
+        "cloudtrace.googleapis.com",
+        "telemetry.googleapis.com",
+        "observability.googleapis.com",
+        "apphub.googleapis.com",
+        "cloudasset.googleapis.com",
+        "apptopology.googleapis.com",
+    ]
+    geap_roles = [
+        "roles/agentregistry.admin",
+        "roles/modelarmor.admin",
+        "roles/apptopology.viewer",
+        "roles/cloudtrace.user",
+        "roles/observability.viewAccessor",
+        "roles/iam.accessPolicyViewer",
+    ]
+    try:
+        raw = subprocess.check_output(["terraform", "output", "-json", "geap_governance_checklist"], text=True, stderr=subprocess.DEVNULL)
+        data = json.loads(raw)
+    except Exception:
+        tfvars = parse_tfvars(os.path.join(os.getcwd(), "terraform.tfvars")) or {}
+        envs = tfvars.get("environments", ["non-prod", "prod"])
+        gov_mode = str(tfvars.get("geap_governance_mode", "none")).strip().lower() or "none"
+        org_id = str(tfvars.get("org_id") or "").strip()
+        domain = tfvars.get("company_domain", "example.com")
+        cust_id = tfvars.get("customer_id", "customer")
+        prefix = tfvars.get("project_id_prefix", "")
+        enabled = (gov_mode == "foundation")
+        data = {
+            env: {
+                "project_id": f"{prefix}{cust_id}-{env}",
+                "location": tfvars.get("location", "global"),
+                "governance_mode": gov_mode,
+                "enabled": enabled,
+                "enabled_apis": geap_apis if enabled else [],
+                "admin_roles": geap_roles if enabled else [],
+                "admin_group": f"{cust_id}-{env}-admins@{domain}",
+                "user_group": f"{cust_id}-{env}-users@{domain}",
+                "spiffe_trust_domain_hint": f"spiffe://{org_id}.org.id.goog/agents/..." if org_id and org_id != "null" else "spiffe://<ORG_ID>.org.id.goog/agents/...",
+                "console_urls": {
+                    "agent_registry": f"https://console.cloud.google.com/agent-registry?project={prefix}{cust_id}-{env}",
+                    "model_armor": f"https://console.cloud.google.com/security/model-armor?project={prefix}{cust_id}-{env}",
+                    "topology": f"https://console.cloud.google.com/net-intelligence/topology?project={prefix}{cust_id}-{env}",
+                    "vertex_agents": f"https://console.cloud.google.com/vertex-ai/agents?project={prefix}{cust_id}-{env}",
+                },
+            }
+            for env in envs
+        }
+    print(json.dumps(data, indent=2))
+
+
+def print_workspace_actions_checklist():
+    """Fetch terraform workspace_actions_checklist output (or fallback to terraform.tfvars) and output JSON."""
+    try:
+        raw = subprocess.check_output(["terraform", "output", "-json", "workspace_actions_checklist"], text=True, stderr=subprocess.DEVNULL)
+        data = json.loads(raw)
+    except Exception:
+        tfvars = parse_tfvars(os.path.join(os.getcwd(), "terraform.tfvars")) or {}
+        envs = tfvars.get("environments", ["non-prod", "prod"])
+        cust_id = tfvars.get("customer_id", "customer")
+        prefix = tfvars.get("project_id_prefix", "")
+        data = {
+            env: {
+                "project_id": f"{prefix}{cust_id}-{env}",
+                "authorized_redirect_uris": [
+                    "https://vertexaisearch.cloud.google.com/console/oauth/default_oauth.html",
+                    "https://vertexaisearch.cloud.google.com/oauth-redirect"
+                ],
+                "action_instructions": "Create a Web Application OAuth 2.0 Client in https://console.cloud.google.com/apis/credentials with authorized redirect URIs https://vertexaisearch.cloud.google.com/console/oauth/default_oauth.html and https://vertexaisearch.cloud.google.com/oauth-redirect, and export TF_VAR_workspace_oauth='{\"client_id\":\"...\",\"client_secret\":\"...\"}'."
+            }
+            for env in envs
+        }
+    print(json.dumps(data, indent=2))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Check deployment status and determine next automated/human step.")
     parser.add_argument("--json", action="store_true", help="Output status in JSON format for agent consumption.")
     parser.add_argument("--dwd-checklist", action="store_true", help="Print DWD checklist enriched with 21-digit numeric Client ID.")
+    parser.add_argument("--workspace-actions-checklist", action="store_true", help="Print Google Workspace Actions (3LO OAuth + BAP) checklist.")
     parser.add_argument("--jira-checklist", action="store_true", help="Print Jira checklist enriched with discovered Atlassian cloudId.")
     parser.add_argument("--confluence-checklist", action="store_true", help="Print Confluence checklist enriched with discovered Atlassian cloudId.")
     parser.add_argument("--slack-checklist", action="store_true", help="Print Slack Enterprise onboarding checklist.")
     parser.add_argument("--people-directory-checklist", action="store_true", help="Print Google People Directory connector onboarding checklist.")
+    parser.add_argument("--geap-checklist", action="store_true", help="Print GEAP Agent Governance Foundation readiness & Day-2 handoff manifest.")
     parser.add_argument("--deep", action="store_true", help="Perform deep drift check via terraform plan.")
     parser.add_argument("--workdir", default=".", help="Root directory of the Terraform repository.")
     parser.add_argument("--state-file", help="Path to terraform.tfstate override (for test fixtures).")
@@ -940,6 +1139,10 @@ def main():
 
     if args.dwd_checklist:
         print_dwd_checklist()
+        sys.exit(0)
+
+    if args.workspace_actions_checklist:
+        print_workspace_actions_checklist()
         sys.exit(0)
 
     if args.jira_checklist:
@@ -958,8 +1161,13 @@ def main():
         print_people_directory_checklist()
         sys.exit(0)
 
+    if args.geap_checklist:
+        print_geap_checklist()
+        sys.exit(0)
+
+    abs_workdir = os.path.abspath(args.workdir)
     status_data = determine_status(
-        workdir=os.path.abspath(args.workdir),
+        workdir=abs_workdir,
         state_path=args.state_file,
         tfvars_path=args.tfvars_file,
         skip_auth_check=args.skip_auth_check,
@@ -967,12 +1175,19 @@ def main():
         deep=args.deep
     )
 
+    if "geap_governance_mode" not in status_data:
+        tfvars_f = args.tfvars_file or os.path.join(abs_workdir, "terraform.tfvars")
+        parsed_tfv = parse_tfvars(tfvars_f) or {}
+        gm = str(parsed_tfv.get("geap_governance_mode", "none")).strip().lower()
+        status_data["geap_governance_mode"] = gm if gm in ("none", "foundation") else "none"
+
     if args.json:
         # Output clean JSON without exit_code in the payload (or with it)
         output_payload = {
             "phase": status_data["phase"],
             "phase_name": status_data["phase_name"],
             "owner": status_data["owner"],
+            "geap_governance_mode": status_data["geap_governance_mode"],
             "blockers": status_data["blockers"],
             "next_action": status_data["next_action"],
             "handoff_template": status_data["handoff_template"]
@@ -991,7 +1206,7 @@ def main():
                     pass
         print(json.dumps(output_payload, indent=2))
     else:
-        print_human_table(status_data)
+        print_human_table(status_data, workdir=abs_workdir)
 
     sys.exit(status_data["exit_code"])
 

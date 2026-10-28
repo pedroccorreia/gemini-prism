@@ -89,10 +89,72 @@ variable "planned_connectors" {
   }
 }
 
+variable "geap_governance_mode" {
+  type        = string
+  description = "Optional GEAP Agent Governance posture per environment project: 'none' (Gemini Enterprise only) or 'foundation' (enables Agent Registry, Agent Identity, Gateway, Model Armor, Topology & Observability APIs, pre-warms P4SAs, and grants GEAP Admin IAM)."
+  default     = "none"
+
+  validation {
+    condition     = contains(["none", "foundation"], var.geap_governance_mode)
+    error_message = "geap_governance_mode must be either 'none' or 'foundation'."
+  }
+}
+
 variable "workspace_connectors" {
   type        = set(string)
   description = "Set of Google Workspace connector types to provision (e.g. google_mail, google_calendar, google_drive, google_chat)"
   default     = ["google_mail", "google_calendar", "google_drive", "google_chat"]
+}
+
+variable "enable_workspace_actions" {
+  type        = bool
+  description = "Whether to enable Google Workspace Actions (FEDERATED + ACTIONS mode) across Google Workspace connectors. Requires 3LO Web OAuth credentials passed via TF_VAR_workspace_oauth (or TF_VAR_workspace_auth) and provisions tenant BAP connections with the BAP action catalog."
+  default     = false
+}
+
+variable "workspace_oauth" {
+  type = object({
+    client_id     = optional(string, "")
+    client_secret = optional(string, "")
+  })
+  description = "Sensitive OAuth 2.0 Web Application client credentials for Workspace Actions (pass via TF_VAR_workspace_oauth environment variable)"
+  default     = {}
+  sensitive   = true
+}
+
+variable "workspace_auth" {
+  type = object({
+    client_id     = optional(string, "")
+    client_secret = optional(string, "")
+  })
+  description = "Alias for workspace_oauth (pass via TF_VAR_workspace_auth environment variable)"
+  default     = {}
+  sensitive   = true
+}
+
+variable "workspace_actions_config" {
+  type = map(object({
+    collection_id   = optional(string, null)
+    enable_actions  = optional(bool, false)
+    enabled_actions = optional(list(string), [])
+    action_params   = optional(map(string), {})
+  }))
+  description = "Per-connector configuration for Google Workspace connectors (google_mail, google_calendar, google_drive, google_chat). Allows overriding collection_id, enabled actions (BAP catalog), and action credentials."
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for k in keys(var.workspace_actions_config) :
+      contains(["google_mail", "google_calendar", "google_drive", "google_chat"], k)
+    ])
+    error_message = "workspace_actions_config keys must be valid Workspace connectors: google_mail, google_calendar, google_drive, google_chat."
+  }
+}
+
+variable "extra_data_store_ids" {
+  type        = map(list(string))
+  description = "Optional map of environment key to supplemental Discovery Engine data store IDs (e.g., BigQuery/GCS unstructured stores or external federated collections) to keep attached to the unified Search Engine alongside connector-managed data stores."
+  default     = {}
 }
 
 variable "enable_connectors" {

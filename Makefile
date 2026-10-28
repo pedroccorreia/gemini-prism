@@ -1,6 +1,7 @@
-.PHONY: status configure check-inputs enable-connectors plan-foundation apply-foundation dwd-checklist jira-checklist confluence-checklist slack-checklist people-checklist hubspot-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify test help
+.PHONY: status configure check-inputs enable-connectors plan-foundation apply-foundation plan-governance apply-governance dwd-checklist workspace-actions-checklist jira-checklist confluence-checklist slack-checklist people-checklist hubspot-checklist geap-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify test help
 
 WAIT ?= 15m
+export GOOGLE_OAUTH_ACCESS_TOKEN ?= $(shell gcloud auth print-access-token 2>/dev/null)
 
 help:
 	@echo ""
@@ -9,25 +10,29 @@ help:
 	@echo "  ═══╝╱____╲     v1.0        │ Workspace · Jira · Confluence · Slack · HubSpot · Identity · Licensing"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  status               - Check deployment status & live phase"
-	@echo "  configure            - Run interactive connector onboarding & configuration wizard"
-	@echo "  check-inputs         - Audit Terraform inputs, missing variables, and Help Center links"
-	@echo "  enable-connectors    - Validate prerequisites and enable planned connectors for Stage 3"
-	@echo "  plan-foundation      - Generate Stage 1 Foundation plan with plan guard"
-	@echo "  apply-foundation     - Apply Stage 1 Foundation plan (0 deletes/replaces)"
-	@echo "  dwd-checklist        - Print Google Workspace Domain-Wide Delegation authorization checklist"
-	@echo "  jira-checklist       - Print Atlassian Jira connector onboarding checklist"
-	@echo "  confluence-checklist - Print Atlassian Confluence connector onboarding checklist"
-	@echo "  slack-checklist      - Print Slack Enterprise connector onboarding checklist"
-	@echo "  people-checklist     - Print Google People Directory connector onboarding checklist"
-	@echo "  hubspot-checklist    - Print HubSpot CRM connector onboarding checklist"
-	@echo "  plan-connectors      - Generate Stage 3 Connectors & Engines plan with plan guard"
-	@echo "  apply-connectors     - Apply Stage 3 Connectors & Engines plan"
-	@echo "  licenses-dryrun      - Dry-run license distribution preflight assertions"
-	@echo "  licenses             - Distribute subscription seats to customer environment projects"
-	@echo "  licenses-list        - List active license allocations and seat quotas"
-	@echo "  verify               - Run post-deployment verification (WAIT=$(WAIT))"
-	@echo "  test                 - Run test harness and Terraform validation"
+	@echo "  status                      - Check deployment status & live phase"
+	@echo "  configure                   - Run interactive connector onboarding & configuration wizard"
+	@echo "  check-inputs                - Audit Terraform inputs, missing variables, and Help Center links"
+	@echo "  enable-connectors           - Validate prerequisites and enable planned connectors for Stage 3"
+	@echo "  plan-foundation             - Generate Stage 1 Foundation plan with plan guard"
+	@echo "  apply-foundation            - Apply Stage 1 Foundation plan (0 deletes/replaces)"
+	@echo "  dwd-checklist               - Print Google Workspace Domain-Wide Delegation authorization checklist"
+	@echo "  workspace-actions-checklist - Print Google Workspace Actions (3LO OAuth + BAP) checklist"
+	@echo "  jira-checklist              - Print Atlassian Jira connector onboarding checklist"
+	@echo "  confluence-checklist        - Print Atlassian Confluence connector onboarding checklist"
+	@echo "  slack-checklist             - Print Slack Enterprise connector onboarding checklist"
+	@echo "  people-checklist            - Print Google People Directory connector onboarding checklist"
+	@echo "  hubspot-checklist           - Print HubSpot CRM connector onboarding checklist"
+	@echo "  geap-checklist              - Print GEAP Agent Governance Foundation readiness & Day-2 handoff manifest"
+	@echo "  plan-governance             - Generate guarded GEAP Governance Foundation plan (existing deployments)"
+	@echo "  apply-governance            - Apply guarded GEAP Governance Foundation plan (0 deletes/replaces)"
+	@echo "  plan-connectors             - Generate Stage 3 Connectors & Engines plan with plan guard"
+	@echo "  apply-connectors            - Apply Stage 3 Connectors & Engines plan"
+	@echo "  licenses-dryrun             - Dry-run license distribution preflight assertions"
+	@echo "  licenses                    - Distribute subscription seats to customer environment projects"
+	@echo "  licenses-list               - List active license allocations and seat quotas"
+	@echo "  verify                      - Run post-deployment verification (WAIT=$(WAIT))"
+	@echo "  test                        - Run test harness and Terraform validation"
 
 status:
 	python3 scripts/status.py $(ARGS)
@@ -53,6 +58,9 @@ apply-foundation:
 dwd-checklist:
 	@python3 scripts/status.py --dwd-checklist
 
+workspace-actions-checklist:
+	@python3 scripts/status.py --workspace-actions-checklist
+
 jira-checklist:
 	@python3 scripts/status.py --jira-checklist
 
@@ -68,14 +76,26 @@ people-checklist:
 hubspot-checklist:
 	@python3 scripts/status.py --hubspot-checklist
 
+geap-checklist:
+	@python3 scripts/status.py --geap-checklist
+
+plan-governance:
+	@mkdir -p .plans
+	terraform plan -input=false -target=google_project_service.services -target=google_project_service_identity.geap_sa -target=google_project_iam_member.group_admins_geap -out=.plans/governance.tfplan
+	python3 scripts/plan_guard.py .plans/governance.tfplan
+
+apply-governance:
+	python3 scripts/plan_guard.py .plans/governance.tfplan
+	terraform apply -input=false .plans/governance.tfplan
+
 plan-connectors:
 	@mkdir -p .plans
-	terraform plan -input=false -out=.plans/connectors.tfplan
+	set -a; [ -f .env.jira ] && . ./.env.jira; [ -f .env.workspace ] && . ./.env.workspace; [ -f .env.hubspot ] && . ./.env.hubspot; set +a; terraform plan -input=false -out=.plans/connectors.tfplan
 	python3 scripts/plan_guard.py .plans/connectors.tfplan
 
 apply-connectors:
 	python3 scripts/plan_guard.py .plans/connectors.tfplan
-	terraform apply -input=false .plans/connectors.tfplan
+	set -a; [ -f .env.jira ] && . ./.env.jira; [ -f .env.workspace ] && . ./.env.workspace; [ -f .env.hubspot ] && . ./.env.hubspot; set +a; terraform apply -input=false .plans/connectors.tfplan && python3 scripts/configure.py --sync-workspace-actions
 
 licenses-dryrun:
 	python3 scripts/allocate_licenses.py --distribute --dry-run

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 330" width="1120" height="330" fill="none">
+  <defs>
+    <linearGradient id="termBg" x1="0" y1="0" x2="1120" y2="330" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0B1120" />
+      <stop offset="100%" stop-color="#070B14" />
+    </linearGradient>
+  </defs>
+
+  <!-- Window Frame -->
+  <rect width="1120" height="330" rx="12" fill="url(#termBg)" />
+  <rect x="0.5" y="0.5" width="1119" height="329" rx="11.5" stroke="#334155" stroke-width="1" />
+
+  <!-- Title Bar -->
+  <path d="M 1 12 Q 1 1 12 1 L 1108 1 Q 1119 1 1119 12 L 1119 38 L 1 38 Z" fill="#0F172A" />
+  <line x1="0" y1="38" x2="1120" y2="38" stroke="#1E293B" stroke-width="1" />
+  <circle cx="20" cy="19" r="5.5" fill="#EF4444" />
+  <circle cx="38" cy="19" r="5.5" fill="#F59E0B" />
+  <circle cx="56" cy="19" r="5.5" fill="#10B981" />
+  <text x="560" y="23" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" fill="#94A3B8" text-anchor="middle">prism — make configure &amp; make status (zero external dependencies)</text>
+
+  <!-- Vertical Split Divider -->
+  <line x1="568" y1="38" x2="568" y2="330" stroke="#1E293B" stroke-width="1" />
+
+  <!-- LEFT PANE: make configure -->
+  <g transform="translate(22, 62)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">
+    <text x="0" y="0" fill="#38BDF8" font-weight="700">$ make configure</text>
+    <text x="0" y="24" fill="#E2E8F0" font-weight="600">Select Planned Enterprise Connectors  [↑/↓ Move · Space Toggle · ? Help]</text>
+
+    <rect x="-6" y="36" width="526" height="24" rx="5" fill="#13233A" />
+    <text x="4" y="52" fill="#00F5D4">❯ [✓] Google Workspace (Gmail, Calendar, Drive, Chat + Actions)</text>
+    <text x="4" y="74" fill="#5EEAD4">  [✓] Jira Cloud              <tspan fill="#64748B">— OAuth 2.0 3LO federated issues</tspan></text>
+    <text x="4" y="96" fill="#5EEAD4">  [✓] Atlassian Confluence    <tspan fill="#64748B">— Spaces, pages, blogs (Jira fallback)</tspan></text>
+    <text x="4" y="118" fill="#5EEAD4">  [✓] Slack Enterprise        <tspan fill="#64748B">— Federated v3 + Remote MCP actions</tspan></text>
+    <text x="4" y="140" fill="#94A3B8">  [ ] People Directory        <tspan fill="#64748B">— Org chart &amp; profiles (0 extra creds)</tspan></text>
+    <text x="4" y="162" fill="#5EEAD4">  [✓] HubSpot CRM             <tspan fill="#64748B">— Contacts, companies, deals, tickets</tspan></text>
+
+    <text x="0" y="196" fill="#E2E8F0" font-weight="600">GEAP Agent Governance Foundation:</text>
+    <text x="4" y="216" fill="#A5B4FC">  (•) foundation  <tspan fill="#64748B">— Enable Registry, Gateway, Model Armor &amp; Topology</tspan></text>
+    <text x="0" y="244" fill="#10B981">✓ Wrote planned_connectors &amp; geap_governance_mode to terraform.tfvars</text>
+  </g>
+
+  <!-- RIGHT PANE: make status -->
+  <g transform="translate(590, 62)" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">
+    <text x="0" y="0" fill="#38BDF8" font-weight="700">$ make status</text>
+    <text x="0" y="24" fill="#64748B">════════════════════════════════════════════════════════</text>
+    <text x="0" y="44" fill="#F8FAFC" font-weight="700"> ═══╬─╱╲──✦  PRISM — PROVISIONING STATUS</text>
+    <text x="0" y="62" fill="#64748B">════════════════════════════════════════════════════════</text>
+
+    <text x="0" y="88"  fill="#94A3B8">Current Phase   : <tspan fill="#38BDF8" font-weight="700">Stage 1 — Foundation Apply</tspan></text>
+    <text x="0" y="110" fill="#94A3B8">Phase Owner     : <tspan fill="#00F5D4" font-weight="700">AGENT</tspan> (exit code 0)</text>
+    <text x="0" y="132" fill="#94A3B8">Environments    : <tspan fill="#E2E8F0">non-prod, prod</tspan></text>
+    <text x="0" y="154" fill="#94A3B8">GEAP Governance : <tspan fill="#A5B4FC">foundation (16 APIs + 4 P4SAs)</tspan></text>
+    <text x="0" y="176" fill="#94A3B8">State Guard     : <tspan fill="#10B981">CLEAN (matches customer_id)</tspan></text>
+    <text x="0" y="198" fill="#94A3B8">Plan Guard      : <tspan fill="#10B981">0 destroys · 0 replacements</tspan></text>
+
+    <rect x="0" y="216" width="504" height="34" rx="6" fill="#0C2438" stroke="#38BDF8" stroke-width="0.9" />
+    <text x="12" y="237" fill="#BAE6FD">Next Action → <tspan fill="#FFFFFF" font-weight="700">make plan-foundation &amp;&amp; make apply-foundation</tspan></text>
+  </g>
+</svg>

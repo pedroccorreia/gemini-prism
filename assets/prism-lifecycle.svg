@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" width="1200" height="320" fill="none">
+  <defs>
+    <linearGradient id="lcBg" x1="0" y1="0" x2="1200" y2="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0B1120" />
+      <stop offset="100%" stop-color="#060A14" />
+    </linearGradient>
+    <pattern id="lcGrid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M 32 0 L 0 0 0 32" fill="none" stroke="#1E293B" stroke-width="0.6" stroke-opacity="0.35" />
+    </pattern>
+    <marker id="arrowCyan" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#38BDF8" />
+    </marker>
+    <marker id="arrowAmber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#F59E0B" />
+    </marker>
+  </defs>
+
+  <rect width="1200" height="320" rx="14" fill="url(#lcBg)" />
+  <rect width="1200" height="320" rx="14" fill="url(#lcGrid)" />
+  <rect x="0.5" y="0.5" width="1199" height="319" rx="13.5" stroke="#1E293B" stroke-width="1" />
+
+  <!-- Header -->
+  <text x="28" y="36" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700" letter-spacing="1.2" fill="#38BDF8">GUARDED ROLLOUT STATE MACHINE (STAGES 0–5)</text>
+  <g transform="translate(792, 18)" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="600">
+    <rect x="0" y="0" width="166" height="24" rx="12" fill="#0C2438" stroke="#38BDF8" stroke-width="0.9" />
+    <circle cx="14" cy="12" r="4" fill="#38BDF8" />
+    <text x="26" y="16" fill="#BAE6FD">Agent Autonomous</text>
+
+    <rect x="178" y="0" width="202" height="24" rx="12" fill="#2A1C08" stroke="#F59E0B" stroke-width="0.9" />
+    <circle cx="192" cy="12" r="4" fill="#F59E0B" />
+    <text x="204" y="16" fill="#FDE68A">Human Admin Gate (Exit 2)</text>
+  </g>
+
+  <!-- Connecting Arrows between 6 Stage Cards -->
+  <g stroke-width="2" fill="none">
+    <line x1="200" y1="148" x2="216" y2="148" stroke="#38BDF8" marker-end="url(#arrowCyan)" />
+    <line x1="394" y1="148" x2="410" y2="148" stroke="#F59E0B" marker-end="url(#arrowAmber)" />
+    <line x1="588" y1="148" x2="604" y2="148" stroke="#38BDF8" marker-end="url(#arrowCyan)" />
+    <line x1="782" y1="148" x2="798" y2="148" stroke="#38BDF8" marker-end="url(#arrowCyan)" />
+    <line x1="976" y1="148" x2="992" y2="148" stroke="#38BDF8" marker-end="url(#arrowCyan)" />
+  </g>
+
+  <!-- Stage 0 -->
+  <g transform="translate(24, 62)">
+    <rect width="176" height="174" rx="10" fill="#0F172A" stroke="#38BDF8" stroke-width="1.2" />
+    <rect x="12" y="12" width="66" height="20" rx="5" fill="#0C2438" />
+    <text x="45" y="26" font-family="system-ui, sans-serif" font-size="10.5" font-weight="700" fill="#38BDF8" text-anchor="middle">STAGE 0</text>
+    <text x="164" y="26" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#94A3B8" text-anchor="end">Agent + Human</text>
+    <text x="12" y="54" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#F8FAFC">Preflight &amp; Inputs</text>
+    <text x="12" y="76" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">Select connectors, GEAP</text>
+    <text x="12" y="92" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">mode &amp; audit credentials.</text>
+    <text x="12" y="108" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">Connectors stay <tspan font-family="ui-monospace, monospace" font-size="11" fill="#7DD3FC">false</tspan></text>
+    <rect x="10" y="136" width="156" height="26" rx="6" fill="#080D18" stroke="#1E293B" />
+    <text x="88" y="153" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" font-weight="600" fill="#38BDF8" text-anchor="middle">make configure</text>
+  </g>
+
+  <!-- Stage 1 -->
+  <g transform="translate(218, 62)">
+    <rect width="176" height="174" rx="10" fill="#0F172A" stroke="#38BDF8" stroke-width="1.2" />
+    <rect x="12" y="12" width="66" height="20" rx="5" fill="#0C2438" />
+    <text x="45" y="26" font-family="system-ui, sans-serif" font-size="10.5" font-weight="700" fill="#38BDF8" text-anchor="middle">STAGE 1</text>
+    <text x="164" y="26" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#7DD3FC" text-anchor="end">Agent</text>
+    <text x="12" y="54" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#F8FAFC">Foundation Apply</text>
+    <text x="12" y="76" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">Creates GCP projects,</text>
+    <text x="12" y="92" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">GSUITE IdP, IAM groups</text>
+    <text x="12" y="108" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">&amp; DWD 21-digit Client ID.</text>
+    <rect x="10" y="136" width="156" height="26" rx="6" fill="#080D18" stroke="#1E293B" />
+    <text x="88" y="153" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" font-weight="600" fill="#38BDF8" text-anchor="middle">make apply-foundation</text>
+  </g>
+
+  <!-- Stage 2 (HUMAN GATE) -->
+  <g transform="translate(412, 62)">
+    <rect width="176" height="174" rx="10" fill="#17130A" stroke="#F59E0B" stroke-width="1.5" />
+    <rect x="12" y="12" width="66" height="20" rx="5" fill="#3B2506" />
+    <text x="45" y="26" font-family="system-ui, sans-serif" font-size="10.5" font-weight="700" fill="#FBBF24" text-anchor="middle">STAGE 2</text>
+    <text x="164" y="26" font-family="system-ui, sans-serif" font-size="10" font-weight="700" fill="#FBBF24" text-anchor="end">HUMAN GATE</text>
+    <text x="12" y="54" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#FEF3C7">Admin Auth Gate</text>
+    <text x="12" y="76" font-family="system-ui, sans-serif" font-size="11.5" fill="#D6D3D1">Authorize Workspace DWD,</text>
+    <text x="12" y="92" font-family="system-ui, sans-serif" font-size="11.5" fill="#D6D3D1">3LO OAuth &amp; SaaS keys,</text>
+    <text x="12" y="108" font-family="system-ui, sans-serif" font-size="11.5" fill="#D6D3D1">then unlock Stage 3.</text>
+    <rect x="10" y="136" width="156" height="26" rx="6" fill="#0D0A05" stroke="#78350F" />
+    <text x="88" y="153" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10" font-weight="600" fill="#FBBF24" text-anchor="middle">make enable-connectors</text>
+  </g>
+
+  <!-- Stage 3 -->
+  <g transform="translate(606, 62)">
+    <rect width="176" height="174" rx="10" fill="#0F172A" stroke="#38BDF8" stroke-width="1.2" />
+    <rect x="12" y="12" width="66" height="20" rx="5" fill="#0C2438" />
+    <text x="45" y="26" font-family="system-ui, sans-serif" font-size="10.5" font-weight="700" fill="#38BDF8" text-anchor="middle">STAGE 3</text>
+    <text x="164" y="26" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#7DD3FC" text-anchor="end">Agent</text>
+    <text x="12" y="54" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#F8FAFC">Connectors &amp; App</text>
+    <text x="12" y="76" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">Provisions Federated +</text>
+    <text x="12" y="92" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">Actions stores, Search</text>
+    <text x="12" y="108" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">Engine &amp; Assistant.</text>
+    <rect x="10" y="136" width="156" height="26" rx="6" fill="#080D18" stroke="#1E293B" />
+    <text x="88" y="153" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" font-weight="600" fill="#38BDF8" text-anchor="middle">make apply-connectors</text>
+  </g>
+
+  <!-- Stage 4 -->
+  <g transform="translate(800, 62)">
+    <rect width="176" height="174" rx="10" fill="#0F172A" stroke="#38BDF8" stroke-width="1.2" />
+    <rect x="12" y="12" width="66" height="20" rx="5" fill="#0C2438" />
+    <text x="45" y="26" font-family="system-ui, sans-serif" font-size="10.5" font-weight="700" fill="#38BDF8" text-anchor="middle">STAGE 4</text>
+    <text x="164" y="26" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#7DD3FC" text-anchor="end">Agent</text>
+    <text x="12" y="54" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#F8FAFC">Seat Distribution</text>
+    <text x="12" y="76" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">Routes Billing Account</text>
+    <text x="12" y="92" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">pool quotas to projects</text>
+    <text x="12" y="108" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">with auto-registration.</text>
+    <rect x="10" y="136" width="156" height="26" rx="6" fill="#080D18" stroke="#1E293B" />
+    <text x="88" y="153" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" font-weight="600" fill="#38BDF8" text-anchor="middle">make licenses</text>
+  </g>
+
+  <!-- Stage 5 -->
+  <g transform="translate(994, 62)">
+    <rect width="182" height="174" rx="10" fill="#0F172A" stroke="#00F5D4" stroke-width="1.3" />
+    <rect x="12" y="12" width="66" height="20" rx="5" fill="#062C28" />
+    <text x="45" y="26" font-family="system-ui, sans-serif" font-size="10.5" font-weight="700" fill="#00F5D4" text-anchor="middle">STAGE 5</text>
+    <text x="170" y="26" font-family="system-ui, sans-serif" font-size="10" font-weight="600" fill="#5EEAD4" text-anchor="end">Agent + UAT</text>
+    <text x="12" y="54" font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="#F8FAFC">Verify &amp; Handoff</text>
+    <text x="12" y="76" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">Polls connector ACTIVE</text>
+    <text x="12" y="92" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">health, prints Web App</text>
+    <text x="12" y="108" font-family="system-ui, sans-serif" font-size="11.5" fill="#94A3B8">URLs &amp; GEAP manifest.</text>
+    <rect x="10" y="136" width="162" height="26" rx="6" fill="#080D18" stroke="#115E59" />
+    <text x="91" y="153" font-family="ui-monospace, SFMono-Regular, monospace" font-size="10.5" font-weight="600" fill="#00F5D4" text-anchor="middle">make verify</text>
+  </g>
+
+  <!-- Bottom Safety Guardrail Bar -->
+  <g transform="translate(24, 256)">
+    <rect width="1152" height="44" rx="9" fill="#0B1324" stroke="#334155" stroke-width="1" />
+    <text x="20" y="27" font-family="system-ui, -apple-system, sans-serif" font-size="11.5" font-weight="700" fill="#A5B4FC">🛡️ ALWAYS-ON SAFETY RAILS:  <tspan font-family="ui-monospace, SFMono-Regular, monospace" font-weight="600" fill="#E2E8F0">plan_guard.py</tspan> <tspan font-weight="400" fill="#94A3B8">blocks any destroy/replace</tspan>   <tspan fill="#475569">│</tspan>   <tspan font-family="ui-monospace, SFMono-Regular, monospace" font-weight="600" fill="#E2E8F0">status.py</tspan> <tspan font-weight="400" fill="#94A3B8">halts on foreign state</tspan>   <tspan fill="#475569">│</tspan>   <tspan font-family="ui-monospace, SFMono-Regular, monospace" font-weight="600" fill="#E2E8F0">deletion_policy = "PREVENT"</tspan> <tspan font-weight="400" fill="#94A3B8">on projects</tspan></text>
+  </g>
+</svg>

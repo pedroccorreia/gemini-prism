@@ -10,12 +10,12 @@ Prism unifies disparate enterprise knowledge systems into **Google Gemini Enterp
 
 | Priority | Connector | Target System | Ingestion Scope / Entities | Auth Architecture | Target Release | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Current** | **Google Workspace** | Google Workspace | Gmail, Calendar, Drive, Chat | Domain-Wide Delegation (DWD) | `v1.0.0` | 🟢 **GA (Shipped)** |
+| **Current** | **Google Workspace** | Google Workspace | Gmail, Calendar, Drive, Chat (+ BAP 3LO Actions) | Domain-Wide Delegation (DWD) + 3LO OAuth | `v1.0.0` | 🟢 **GA (Shipped)** |
 | **Current** | **Atlassian Jira** | Jira Cloud / Data Center | Projects, Issues, Comments, Attachments, Worklogs | OAuth 2.0 (3LO) / API Token | `v1.1.0` | 🟢 **GA (Shipped)** |
 | **Current** | **People Directory** | Google Cloud Identity / Workspace | User Profiles, Org Chart, Manager Hierarchy, Offices | Discovery Engine DWD SA | `v1.2.0` | 🟢 **GA (Shipped)** |
 | **Current** | **Atlassian Confluence** | Confluence Cloud / DC | Spaces, Pages, Blogposts, Attachments, Comments (Federated Cloud v4 / DC v1) | OAuth 2.0 (3LO) / DC Basic Auth / Jira Fallback | `v1.3.0` | 🟢 **GA (Shipped)** |
 | **Current** | **Slack Enterprise** | Slack Enterprise Grid / Workspace | Conversations, Messages, Files + MCP Actions (`FEDERATED`) | Google-Managed OAuth 2.0 / BYO App (`v3`) | `v1.4.0` | 🟢 **GA (Shipped)** |
-| **P3 (Medium)** | **HubSpot CRM** | HubSpot Cloud | Contacts, Companies, Deals, Tickets, Engagements | Private App Token / OAuth | `v1.5.0` | 📋 **Accepted / Backlog** |
+| **Current** | **HubSpot CRM** | HubSpot Cloud | Contacts, Companies, Deals, Tickets (`FEDERATED`) | HubSpot Service Key (`TF_VAR_hubspot_auth`) | `v1.5.0` | 🟢 **GA (Shipped)** |
 
 ---
 
@@ -37,11 +37,12 @@ Prism unifies disparate enterprise knowledge systems into **Google Gemini Enterp
 - **Collection ID:** `slack-collection`
 - **Status:** 🟢 **Shipped (v1.4.0)** — Configurable via `enable_slack_connector`, `slack_auth`, and `slack_config` with helper `make slack-checklist`.
 
-### 3. [P3] HubSpot CRM Connector
+### 3. HubSpot CRM Connector (Shipped GA)
 - **Repository Issue:** [.github/issues/03_hubspot_connector.md](../.github/issues/03_hubspot_connector.md)
-- **Objective:** Enable conversational retrieval over CRM accounts, pipeline stages, deals, and support tickets.
-- **Security:** Ingestion of Private App tokens via GCP Secret Manager.
-- **Collection ID:** `hubspot-collection`
+- **Objective:** Enable real-time federated conversational retrieval over CRM contacts, companies, deals, and support tickets.
+- **Architectural Mode:** Native **`FEDERATED`** mode via Discovery Engine HubSpot connector (`hubspot-federated-collection`).
+- **Security:** Service Key (`pat-...`) passed via `TF_VAR_hubspot_auth` / `.env.hubspot`.
+- **Status:** 🟢 **Shipped (v1.5.0)** — Configurable via `enable_hubspot_connector`, `hubspot_auth`, and `hubspot_config` with helper `make hubspot-checklist`.
 
 ### 4. Google People & Org Directory Connector (Shipped GA)
 - **Repository Issue:** [.github/issues/04_people_directory_connector.md](../.github/issues/04_people_directory_connector.md)

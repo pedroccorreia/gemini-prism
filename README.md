@@ -3,281 +3,181 @@
 </div>
 
 <p align="center">
-  <a href="RUNBOOK.md"><img src="https://img.shields.io/badge/Runbook-Authoritative_Stages-38BDF8?style=flat-square&logo=gitbook&logoColor=white" alt="Runbook" /></a>
-  <a href="docs/CONNECTORS_ROADMAP.md"><img src="https://img.shields.io/badge/Roadmap-Connectors_P1--P4-EC4899?style=flat-square&logo=target&logoColor=white" alt="Roadmap" /></a>
-  <a href="AGENTS.md"><img src="https://img.shields.io/badge/Agent_Protocol-Guarded_Stages_0--5-818CF8?style=flat-square&logo=robot&logoColor=white" alt="Agent Protocol" /></a>
-  <a href="https://cloud.google.com/vertex-ai-search-and-conversation"><img src="https://img.shields.io/badge/Vertex_AI_Search-Gemini_Enterprise-4285F4?style=flat-square&logo=googlecloud&logoColor=white" alt="Vertex AI Search" /></a>
+  <a href="RUNBOOK.md"><img src="https://img.shields.io/badge/Runbook-Stages_0--5_Manual-38BDF8?style=flat-square&logo=gitbook&logoColor=white" alt="Runbook" /></a>
+  <a href="AGENTS.md"><img src="https://img.shields.io/badge/Agent_Protocol-Guarded_State_Machine-818CF8?style=flat-square&logo=robot&logoColor=white" alt="Agent Protocol" /></a>
+  <a href="docs/CONNECTORS_ROADMAP.md"><img src="https://img.shields.io/badge/Connectors-9_Streams_GA_(v1.5)-00F5D4?style=flat-square&logo=target&logoColor=black" alt="Connectors" /></a>
+  <a href="https://cloud.google.com/vertex-ai-search-and-conversation"><img src="https://img.shields.io/badge/Gemini_Enterprise-Vertex_AI_Search-4285F4?style=flat-square&logo=googlecloud&logoColor=white" alt="Gemini Enterprise" /></a>
   <a href="https://www.terraform.io/"><img src="https://img.shields.io/badge/Terraform-%3E=_1.5.0-7B42BC?style=flat-square&logo=terraform&logoColor=white" alt="Terraform" /></a>
-  <a href="assets/prism-logo.svg"><img src="https://img.shields.io/badge/Brand-Prism_v1-00F5D4?style=flat-square&logo=sparkles&logoColor=white" alt="Brand" /></a>
 </p>
 
-# Prism — Gemini Enterprise Customer Provisioning IaC
+# Prism — Gemini Enterprise Customer Provisioning Engine
 
-> **Refracting enterprise knowledge—Google Workspace, Atlassian Jira, Atlassian Confluence, Slack Enterprise, and Cloud Identity—into one governed Gemini Enterprise assistant.**
+> **Refracting 9 enterprise knowledge streams—Google Workspace, People Directory, Jira, Confluence, Slack, and HubSpot—into one governed Gemini Enterprise assistant.**
 
-**Prism** is a production-grade Terraform Infrastructure as Code (IaC) and autonomous agent orchestration engine that provisions, connects, and licenses **Google Gemini Enterprise (Vertex AI Search)** across isolated customer environments (`non-prod`, `prod`, `dev`, `pilot`).
+**Prism** is a Terraform Infrastructure-as-Code (IaC) and state-driven orchestration engine that provisions, connects, and licenses **Google Gemini Enterprise (Vertex AI Search)** across isolated customer environments (`non-prod`, `prod`, `dev`, `pilot`). It is built to be operated identically by **human platform engineers** (`make configure`) and **autonomous AI coding agents** ([AGENTS.md](AGENTS.md)).
 
-### Optical Convergence Architecture
-Just as an optical prism unifies disparate wavelengths into a single beam, Prism converges enterprise data streams through five guarded deployment stages:
-- **8 Enterprise Input Rays:** Gmail, Google Calendar, Google Drive, Google Chat, Google People Directory, Atlassian Jira, Atlassian Confluence, and Slack Enterprise.
-- **The Prism (IaC Engine):** Staged Terraform foundation, Domain-Wide Delegation (DWD), `GSUITE` location ACLs, and non-destructive plan guards (`plan_guard.py`).
-- **The Gemini Apex Spark:** Unified Intranet Search Engine and Governed Enterprise Assistant (`google_discovery_engine_assistant`).
-
-It deploys:
-- **Dedicated GCP Projects** per configurable customer environment (e.g. `non-prod`, `prod`, `dev`, `pilot`).
-- **Discovery Engine Service Agents** pre-created with Domain-Wide Delegation (DWD) authorization metadata.
-- **Location Identity Provider (IdP)** natively configured to `GSUITE` via `google_discovery_engine_acl_config`.
-- **Cloud Identity Admin & User Groups** with project-level admin (`roles/discoveryengine.admin`) and search engine end-user (`roles/discoveryengine.user`) IAM bindings.
-- **User Store with Auto-Registration** (`google_discovery_engine_user_store`).
-- **Federated Workspace Connectors** (`google_mail`, `google_calendar`, `google_drive`, `google_chat`) and **Google People Directory** (`people-directory-collection`).
-- **Atlassian Jira Data Connector** (`jira-federated-collection`) with multi-entity data stores (`project`, `issue`, `attachment`, `comment`, `worklog`) and optional Action/BAP integration.
-- **Atlassian Confluence Federated Data Connector** (`confluence-federated-collection`) with real-time federated spaces, pages, blogs, attachments, and comments, with automatic Jira shared tenant fallback.
-- **Slack Enterprise Data Connector** (`slack-collection`) with real-time federated `v3` search (`conversation`, `message`, `file`), remote MCP actions (`https://mcp.slack.com`), Google-managed or BYO OAuth 2.0, and channel inclusion/exclusion privacy filters.
-- **Unified Intranet Search App & Governed Assistant** (`google_discovery_engine_search_engine`, `google_discovery_engine_assistant`).
-- **Optional GEAP Agent Governance Foundation (`geap_governance_mode = "foundation"`)**: Selectable during Stage 0 onboarding (`make configure`) to designate each customer project as an **Agent Registry Governance Project**, enabling 16 underlying GEAP APIs (Service Usage, Agent Registry, Agent Identity, Vertex AI Runtime/Policy, Agent Gateway, IAP, Model Armor, App Topology & OpenTelemetry Observability), pre-warming 4 Primary P4SAs, binding 6 GEAP Admin/Visibility IAM roles to the environment Admin Group, and emitting a Day-2 agent handoff manifest (`make geap-checklist`) with zero deployed agents required on Day 1.
-- **Automated Seat Distribution & Verification** tooling via `Makefile`.
-- **Enterprise Connectors Roadmap:** Shipped Workspace, Jira, People Directory, Confluence, and Slack (`v1.4.0`), plus prioritized pipeline tracking [HubSpot CRM (P3)](docs/CONNECTORS_ROADMAP.md).
+<div align="center">
+  <img src="assets/prism-optical-convergence.jpg" alt="Optical Convergence — 9 Enterprise Streams Refracted into One Governed Gemini Assistant" width="84%" />
+</div>
 
 ---
 
-## Architecture Overview
+## What Prism Does in 30 Seconds
 
-```mermaid
-flowchart TD
-  subgraph Customer["Customer Identity & Third-Party Tenants"]
-    WSGroup["Cloud Identity Group<br/><code>{customer}-{env}-users@{domain}</code>"]
-    WSAdmin["Google Workspace Admin Console<br/>(DWD API Client Authorization)"]
-    JiraTenant["Atlassian Jira Cloud<br/>(OAuth 2.0 3LO / API Token)"]
-    ConfTenant["Atlassian Confluence<br/>(OAuth 2.0 3LO / DC Basic)"]
-    SlackTenant["Slack Enterprise / Workspace<br/>(OAuth 2.0 / Remote MCP)"]
-  end
-
-  subgraph GCPFoundation["GCP Customer Environment Project ({customer}-{env})"]
-    PService["Enabled GCP APIs<br/>(discoveryengine, drive, gmail, chat...)"]
-    SAgent["Discovery Engine Service Agent<br/><code>service-{PROJECT_NUMBER}@gcp-sa-discoveryengine...</code>"]
-    IdP["Location ACL / IdP: GSUITE"]
-    UStore["User Store: default_user_store<br/>(Auto-Register: ON)"]
-  end
-
-  subgraph ConnectorsAndEngine["Workspace, Jira, Confluence & Slack Connectors & Search Engine"]
-    Conn1["Gmail Connector"]
-    Conn2["Calendar Connector"]
-    Conn3["Drive Connector"]
-    Conn4["Chat Connector"]
-    ConnJira["Jira Connector<br/>(project, issue, comment, attachment, worklog)"]
-    ConnConf["Confluence Connector<br/>(space, page, blog, attachment, comment)"]
-    ConnSlack["Slack Connector<br/>(conversation, message, file + MCP Actions)"]
-    Engine["Search App: {customer}-{env}-search-engine"]
-    Assist["Governed Assistant: default_assistant"]
-  end
-
-  WSAdmin -.->|Authorizes Scopes| SAgent
-  JiraTenant -.->|OAuth 2.0 / Token| ConnJira
-  ConfTenant -.->|OAuth 2.0 / Shared Jira| ConnConf
-  SlackTenant -.->|OAuth 2.0 / MCP| ConnSlack
-  SAgent --> Conn1 & Conn2 & Conn3 & Conn4
-  Conn1 & Conn2 & Conn3 & Conn4 --> Engine
-  ConnJira --> Engine
-  ConnConf --> Engine
-  ConnSlack --> Engine
-  Engine --> Assist
-  WSGroup -->|roles/discoveryengine.user| Engine
-```
-
-### Why Location is Global
-The `location` variable defaults to `global`. In Gemini Enterprise federated Workspace search (Gmail, Calendar, Drive, Chat), queries are federated directly against Google Workspace APIs in real-time under user credentials and are not ingested or copied into GCP persistent data stores. Google Workspace connectors currently require Discovery Engine resources to reside in the `global` location.
+| Pillar | What Prism Automates |
+| :--- | :--- |
+| **1. Isolated Multi-Env Foundation** | Creates dedicated GCP projects per environment, configures Location ACLs to `GSUITE`, provisions Cloud Identity Admin & User groups, and pre-creates Discovery Engine Service Agents with 21-digit numeric DWD Client IDs. |
+| **2. Zero-Copy Federated Search & Actions** | Connects **9 enterprise sources** in real-time `FEDERATED` mode (plus optional **BAP 3LO** & **Remote MCP `ACTIONS`**)—enforcing per-user source ACLs at query time without copying sensitive SaaS data into persistent buckets. |
+| **3. Declarative Seat Licensing** | Distributes Gemini Enterprise seat quotas from the Cloud Billing Account pool to environment projects (`make licenses`) and enables User Store auto-registration on first login. |
+| **4. Guarded Human + Agent Rollout** | Guides execution through a **6-phase state machine (Stages 0–5)** where [`plan_guard.py`](scripts/plan_guard.py) blocks any resource deletion/replacement and [`status.py`](scripts/status.py) halts cleanly at Human Admin OAuth/DWD gates (`exit 2`). |
 
 ---
 
-## Licensing Architecture & IAM
+## Reference Architecture
 
-Gemini Enterprise licenses are managed at the **Cloud Billing Account** level:
+<div align="center">
+  <img src="assets/prism-architecture.svg" alt="Prism Reference Architecture" width="100%" />
+</div>
 
-```mermaid
-flowchart TD
-    subgraph BillingLevel["Cloud Billing Account (0X1XXX-XXXXXX-XXXXXX)"]
-        Sub["Gemini Enterprise Subscription Pool<br/><code>BillingAccountLicenseConfig</code>"]
-    end
+> [!NOTE]
+> **Why `location = "global"`?** Google Workspace federated connectors execute live queries directly against Workspace APIs under end-user identity rather than ingesting copies into regional storage, and require Discovery Engine resources in the `global` location. Supplemental customer BigQuery/GCS stores can also be attached and preserved via `extra_data_store_ids`.
 
-    subgraph Distribution["distributeLicenseConfig (make licenses)"]
-        D1["Distribute N seats to Prod"]
-        D2["Distribute M seats to Non-Prod"]
-    end
+<details>
+<summary><strong>🛡️ Optional Day-1 Add-On: GEAP Agent Governance Foundation (<code>geap_governance_mode = "foundation"</code>)</strong></summary>
+<br/>
 
-    subgraph Projects["Customer Projects (User Store Auto-Register: ON)"]
-        P1["Production (<customer_id>-prod)"]
-        P2["Non-Production (<customer_id>-non-prod)"]
-    end
-
-    Sub --> D1 --> P1
-    Sub --> D2 --> P2
-```
-
-1. **Central Subscription Model**: Subscriptions are purchased on the Cloud Billing Account and distributed to project numbers via `billingAccounts.billingAccountLicenseConfigs.distributeLicenseConfig`.
-2. **Auto-Registration on Login**: Projects configure `default_user_store` with `enable_license_auto_register = true`, automatically granting licenses to users upon first application login without manual seat assignments.
-3. **Declarative State**: The Terraform configuration automatically emits `config/license_allocations.json` (see template in [`config/license_allocations.example.json`](config/license_allocations.example.json)), linking live GCP project numbers directly to seat quotas.
-4. **Required IAM Permissions**:
-   - `discoveryengine.billingAccountLicenseConfigs.distribute` on the Cloud Billing Account.
-   - `roles/discoveryengine.admin` on the environment projects.
-   - `roles/resourcemanager.projectViewer` on the environment projects.
+Selectable during Stage 0 (`make configure`) or applied non-disruptively to existing deployments (`make plan-governance && make apply-governance`), **GEAP Foundation Mode** designates each customer project as an **Agent Registry Governance Project**:
+- Enables **16 GEAP APIs** (Agent Registry, Agent Identity, Vertex AI Runtime/Policy, Agent Gateway, IAP, Model Armor, App Topology, and OpenTelemetry Observability).
+- Pre-warms **4 Primary Google-Managed Service Agents (P4SAs)** and binds **6 GEAP Admin/Visibility IAM roles** to `{customer}-{env}-admins@{domain}`.
+- Emits a Day-2 agent onboarding manifest via `make geap-checklist` with **zero deployed agents required on Day 1**.
+</details>
 
 ---
 
-## Prerequisites
+## Shipped Enterprise Connectors (`v1.5`)
 
-1. **Google Cloud Platform**:
-   - Active GCP Cloud Billing Account (e.g. `0X1XXX-XXXXXX-XXXXXX`).
-   - Folder or Organization where customer projects will be provisioned.
-   - Bootstrap / quota project (`billing_project`) with management APIs enabled:
-     ```bash
-     gcloud services enable \
-       cloudbilling.googleapis.com \
-       cloudresourcemanager.googleapis.com \
-       cloudidentity.googleapis.com \
-       discoveryengine.googleapis.com \
-       iam.googleapis.com \
-       compute.googleapis.com \
-       --project=<BILLING_PROJECT_ID>
-     ```
-   - Terraform `v1.5+`, `gcloud`, and `python3 (>= 3.9)` installed.
-   - Local authentication with a **customer Workspace domain identity**:
-     ```bash
-     gcloud auth application-default login
-     gcloud auth login
-     ```
-2. **Google Workspace (Critical)**:
-   - Workspace Customer ID (e.g. `C01234567`) and primary domain (`example.com`).
-   - **Groups Admin Role on the `gcloud` User**: The identity authenticated in `gcloud auth application-default login` **must** hold the **Groups Admin** (or Super Admin) role in [Google Workspace Admin Console > Account > Admin roles](https://admin.google.com/ac/roles) so Terraform can provision `google_cloud_identity_group` resources.
-   - **Workspace Super Administrator** access to authorize Domain-Wide Delegation at [admin.google.com/ac/owl/domainwidedelegation](https://admin.google.com/ac/owl/domainwidedelegation) using the 21-digit numeric **Client ID (`uniqueId`)** of the Discovery Engine Service Agent (`make dwd-checklist`).
-3. **Gemini Enterprise Subscription**:
-   - Active Gemini Enterprise subscription with allocated seat capacity on the Billing Account (discoverable via `python3 scripts/allocate_licenses.py --discover --billing-account <BILLING_ACCOUNT_ID>`).
+All Workspace and third-party SaaS connectors run in real-time **`FEDERATED`** mode (with optional write **`ACTIONS`**), keeping customer data in-place:
+
+| Connector | Streams / Entities | Mode | Auth Architecture | Stage 2 Helper |
+| :--- | :--- | :--- | :--- | :--- |
+| **Google Workspace** | Gmail, Calendar, Drive, Chat | `FEDERATED` + optional `ACTIONS` | Service Agent DWD (`uniqueId`) + 3LO Web OAuth (`TF_VAR_workspace_oauth`) | `make dwd-checklist`<br/>`make workspace-actions-checklist` |
+| **People Directory** | Profiles, Org Chart, Hierarchy, Schemas | `DATA_INGESTION` (Incremental) | Reuses Workspace DWD (**0 extra secrets**) | `make people-checklist` |
+| **Atlassian Jira** | Projects, Issues, Comments, Attachments, Worklogs | `FEDERATED` + optional `ACTIONS` | Atlassian 3LO OAuth 2.0 (`TF_VAR_jira_auth`) | `make jira-checklist` |
+| **Atlassian Confluence** | Spaces, Pages, Blogs, Attachments, Comments | `FEDERATED` + optional `ACTIONS` | 3LO OAuth 2.0 (auto-inherits shared Jira auth/URI) | `make confluence-checklist` |
+| **Slack Enterprise** | Conversations, Messages, Files + Remote MCP | `FEDERATED` + `ACTIONS` (`v3`) | Google-Managed OAuth (**0 secrets**) or BYO App | `make slack-checklist` |
+| **HubSpot CRM** | Contacts, Companies, Deals, Tickets | `FEDERATED` | HubSpot Service Key (`TF_VAR_hubspot_auth`) | `make hubspot-checklist` |
 
 ---
 
-## Configuration
+## Guarded Rollout Lifecycle (Stages 0–5)
 
-### Interactive Setup Wizard & Variable Audit
+Because Google Workspace Domain-Wide Delegation (DWD) can only be authorized *after* GCP generates each project's Discovery Engine Service Agent (`uniqueId`), Prism separates foundation creation from connector activation through an explicit **Stage 2 Human Gate**.
 
-Launch the zero-dependency onboarding wizard to configure customer variables and select planned enterprise connectors:
+<div align="center">
+  <img src="assets/prism-lifecycle.svg" alt="Prism Guarded Rollout State Machine (Stages 0-5)" width="100%" />
+</div>
+
+| Stage | Owner | Primary Command | Outcome & Gate Condition |
+| :---: | :--- | :--- | :--- |
+| **0** | 🤖 Agent + 👤 Human | `make configure && make check-inputs` | Populates `terraform.tfvars`, selects `planned_connectors` & `geap_governance_mode`, audits IAM/ADC (`enable_*` stays `false`). |
+| **1** | 🤖 Agent | `make plan-foundation && make apply-foundation` | Creates isolated GCP projects, `GSUITE` IdP ACLs, Cloud Identity groups, User Stores, and Service Agent DWD Client IDs. |
+| **2** | 🔐 **Human Gate** | `make dwd-checklist` → `make enable-connectors` | Admins authorize Workspace DWD & SaaS OAuth/keys (`status.py` exits `2` until `make enable-connectors` validates & unlocks Stage 3). |
+| **3** | 🤖 Agent | `make plan-connectors && make apply-connectors` | Provisions federated/action connectors, flattens data stores into the Unified Search Engine, and configures `default_assistant`. |
+| **4** | 🤖 Agent *(Gate if no sub)* | `make licenses-dryrun && make licenses` | Distributes Cloud Billing subscription seats across environment projects and binds User Store license configs. |
+| **5** | 🤖 Agent → 👤 UAT | `make verify` | Polls until all connectors & engines reach `ACTIVE`, outputs Web App URLs, and hands off for pilot group UAT. |
+
+> [!IMPORTANT]
+> **Where to go deeper:** This README covers architecture and happy-path operation. For per-stage preconditions, exact 12-scope DWD CSV strings, OAuth callback URIs, and error recovery playbooks, see **[RUNBOOK.md](RUNBOOK.md)**. For autonomous agent rules and hand-off templates, see **[AGENTS.md](AGENTS.md)**.
+
+---
+
+## Quickstart
+
+### 1. Prerequisites
+1. **GCP:** Active Cloud Billing Account, target Organization or Folder, Terraform `>= 1.5`, `gcloud`, and `python3 >= 3.9`.
+2. **Identity (`gcloud auth login` & `application-default login`):** Authenticate as a customer Workspace domain user holding GCP `projectCreator` + `billing.user` **and** Google Workspace **Groups Admin** (to create Cloud Identity groups). A **Workspace Super Admin** is required at Stage 2 for DWD.
+3. **Subscription:** Active Gemini Enterprise seat pool on the Billing Account (discoverable via `python3 scripts/allocate_licenses.py --discover`).
+
+### 2. Configure & Audit Inputs (Stage 0)
+
+Run the zero-dependency interactive terminal wizard (or copy [`terraform.tfvars.example`](terraform.tfvars.example) to `terraform.tfvars`):
+
+<div align="center">
+  <img src="assets/prism-cli-preview.svg" alt="Prism Interactive CLI Onboarding & Status Engine" width="96%" />
+</div>
 
 ```bash
-make configure      # Launch interactive terminal combo-box wizard
-make check-inputs   # Audit inputs, missing variables, and Help Center links
+make configure      # Interactive arrow-key selector for connectors, Workspace Actions & GEAP
+make check-inputs   # Audits missing/placeholder variables with console URLs & lookup commands
+make status         # Prints live stage, owner (AGENT vs HUMAN), and exact next command
 ```
 
-Alternatively, copy the example variables file:
-
-```bash
-cp terraform.tfvars.example terraform.tfvars
-```
-
-Edit `terraform.tfvars` with customer values:
+Minimal `terraform.tfvars` footprint:
 
 ```hcl
-customer_id           = "example-customer"
-customer_name         = "Example Customer"
+customer_id           = "acme"
+customer_name         = "Acme Corp"
 environments          = ["non-prod", "prod"]
-company_domain        = "example.com"
+company_domain        = "acme.com"
 workspace_customer_id = "C01234567"
 billing_account       = "0X1XXX-XXXXXX-XXXXXX"
 folder_id             = "123456789012"
 
-# Planned enterprise connectors (workspace, jira, confluence, slack, people_directory)
-planned_connectors    = ["workspace"]
+planned_connectors    = ["workspace", "jira", "confluence", "slack"]
+geap_governance_mode  = "foundation" # or "none"
+enable_connectors     = false        # Flipped automatically in Stage 2 via `make enable-connectors`
 
-# Staged rollout flag (must be false for Stage 1)
-enable_connectors     = false
-workspace_connectors  = ["google_mail", "google_calendar", "google_drive", "google_chat"]
-
-# Seat allocations per environment
 seat_allocations = {
-  prod     = 4
-  non-prod = 1
+  prod     = 50
+  non-prod = 5
 }
 ```
 
----
-
-## Deployment & Operational Procedure
-
-The end-to-end staged deployment procedure is documented in:
-- **[RUNBOOK.md](RUNBOOK.md)**: The authoritative step-by-step checklist and disaster prevention manual for human operators and CI systems.
-- **[AGENTS.md](AGENTS.md)**: The autonomous agent operational protocol, rules of engagement, and hand-off templates.
-
-### Quick Command Surface
-
-All operations are executed through the standard `Makefile`:
+### 3. Command Reference (`Makefile`)
 
 ```bash
-make status            # Check live phase and identify blockers
-make configure         # Stage 0: Interactive connector onboarding wizard
-make check-inputs      # Stage 0: Audit inputs and missing variables
-make plan-foundation   # Stage 1: Generate foundation plan with safety guard
-make apply-foundation  # Stage 1: Apply foundation infrastructure
-make plan-governance   # GEAP Mode 2: Generate guarded GEAP governance-only plan
-make apply-governance  # GEAP Mode 2: Apply GEAP APIs, P4SAs & Admin Group IAM
-make geap-checklist    # GEAP Mode 2: Display Agent Registry & Day-2 handoff manifest
-make dwd-checklist        # Stage 2: Display Workspace DWD authorization details
-make jira-checklist       # Stage 2: Display Atlassian Jira authorization details
-make confluence-checklist # Stage 2: Display Atlassian Confluence authorization details
-make slack-checklist      # Stage 2: Display Slack Enterprise authorization details
-make people-checklist     # Stage 2: Display People Directory authorization details
-make enable-connectors    # Stage 2: Validate prerequisites and enable planned connectors
-make plan-connectors      # Stage 3: Generate connectors plan with safety guard
-make apply-connectors  # Stage 3: Apply connectors, engines & assistants
-make licenses-dryrun   # Stage 4: Verify seat distribution preflight assertions
-make licenses          # Stage 4: Distribute seats to environment projects
-make verify            # Stage 5: Verify health across all components
-make test              # Run unit tests and Terraform validation
+# ── Day-1 Staged Rollout ──────────────────────────────────────────────────────
+make status                                   # Live phase detection & blocker check
+make plan-foundation && make apply-foundation # Stage 1: Projects, GSUITE IdP, IAM & DWD IDs
+make enable-connectors                        # Stage 2: Validate Admin gates & unlock Stage 3
+make plan-connectors && make apply-connectors # Stage 3: Connectors, Search Engine & Assistant
+make licenses-dryrun && make licenses         # Stage 4: Distribute Billing Account seats
+make verify WAIT=15m                          # Stage 5: Poll until ACTIVE & print Web App URLs
+
+# ── Stage 2 Admin Checklists & Day-2 Operations ───────────────────────────────
+make dwd-checklist               # Print 21-digit numeric Client ID & 12-scope CSV
+make workspace-actions-checklist # Print 3LO Web OAuth redirect URIs for Workspace Actions
+make jira-checklist              # Print Atlassian Jira 3LO callback URL, scopes & cloudId
+make confluence-checklist        # Print Confluence 3LO setup (or shared Jira fallback)
+make slack-checklist             # Print Slack v3 Federated + MCP setup
+make hubspot-checklist           # Print HubSpot CRM Service Key scopes & entities
+make people-checklist            # Print Google People Directory DWD verification
+make plan-governance             # Guarded GEAP-only plan for existing Stage 3–5 deployments
+make apply-governance            # Apply GEAP Foundation without touching running connectors
+make geap-checklist              # Print Agent Registry & Day-2 governance handoff manifest
+make test                        # Run contract tests (test_red.py), fmt & terraform validate
 ```
 
 ---
 
-## File Structure
+## Repository Map
 
-```
-├── assets/
-│   ├── prism-banner.svg             # 1200x320 hero vector banner
-│   ├── prism-icon.svg               # 64x64 compact vector icon
-│   └── prism-logo.svg               # 512x512 square vector logo
-├── .agent/
-│   └── workflows/
-│       └── deploy.md                # Antigravity workflow
-├── .github/
-│   ├── ISSUE_TEMPLATE/
-│   │   ├── config.yml               # Issue form metadata & runbook pointer
-│   │   └── feature_request.yml      # Structured connector proposal schema
-│   ├── issues/                      # Ready-to-publish feature request specs
-│   │   ├── 01_confluence_connector.md # P1: Atlassian Confluence
-│   │   ├── 02_slack_connector.md    # P2: Slack Enterprise Grid
-│   │   ├── 03_hubspot_connector.md  # P3: HubSpot CRM
-│   │   └── 04_people_directory_connector.md # P4: Google People Directory
-│   └── workflows/
-│       └── terraform.yml            # CI: fmt, validate, test harness
-├── config/
-│   ├── license_allocations.example.json # Example seat allocation schema
-│   └── license_allocations.json         # Runtime allocations (gitignored)
-├── docs/
-│   ├── CONNECTORS_ROADMAP.md        # Prioritized connector pipeline (P1-P4)
-│   └── ...                          # Supporting architecture collateral
+```text
+├── assets/                  # Brand identity SVGs, architecture/lifecycle diagrams & optical hero art
+├── config/                  # Declarative seat allocation template & Terraform-emitted runtime mapping
+├── docs/                    # Enterprise connectors release matrix (CONNECTORS_ROADMAP.md)
 ├── scripts/
-│   ├── allocate_licenses.py         # License distribution & auto-registration tool
-│   ├── configure.py                 # Interactive connector onboarding & variable audit engine
-│   ├── create_github_issues.sh      # Batch publisher for planned connector issues
-│   ├── plan_guard.py                # Safety barrier preventing destroy/replace
-│   ├── status.py                    # State-driven phase detection engine
-│   ├── test_red.py                  # Negative & contract testing harness
-│   └── verify.py                    # Post-deployment validation script
-├── AGENTS.md                        # Autonomous agent operational protocol
-├── GEMINI.md                        # Agent entrypoint pointer
-├── Makefile                         # Unified command surface
-├── README.md                        # Architecture & concept reference
-├── RUNBOOK.md                       # Authoritative staged deployment runbook
-├── bootstrap.sh                     # Service Account helper bootstrap
-├── main.tf                          # Core Terraform resources
-├── outputs.tf                       # Terraform outputs & DWD checklist
-├── providers.tf                     # Google & Google-Beta providers
-├── terraform.tfvars.example         # Example sanitized variable definitions
-├── variables.tf                     # Input variable declarations
-└── versions.tf                      # Provider & Terraform version constraints
+│   ├── status.py            # Live Stage 0–5 state machine & admin checklist renderer
+│   ├── configure.py         # Zero-dependency TTY/JSON onboarding wizard & Stage 2 gate validator
+│   ├── plan_guard.py        # Non-destructive .tfplan barrier (refuses deletes/replacements)
+│   ├── allocate_licenses.py # Cloud Billing seat discovery, distribution & User Store binding
+│   ├── verify.py            # End-to-end connector & engine ACTIVE health verifier
+│   └── test_red.py          # Negative, safety-rail & contract test suite
+├── AGENTS.md                # Autonomous agent operational protocol & human gate hand-off templates
+├── Makefile                 # Unified operator & agent command surface
+├── RUNBOOK.md               # Authoritative Stage 0–5 manual, OAuth scopes & recovery playbooks
+├── main.tf                  # Core multi-environment GCP, Identity, Connector, Engine & GEAP IaC
+├── variables.tf             # Typed input declarations & validation constraints
+├── outputs.tf               # Environment project IDs, console URLs & DWD metadata outputs
+└── terraform.tfvars.example # Reference customer configuration template
 ```

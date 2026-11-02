@@ -1117,8 +1117,7 @@ def print_hubspot_checklist():
             ]
             if enable_actions
             else []
-        ),
-        "tickets",
+        )
     ]
     hs_auth_type = str(tfvars.get("hubspot_auth_type", "SERVICE_KEY")).strip().upper()
     if hs_auth_type in ("OAUTH", "OAUTH2"):
@@ -1130,11 +1129,11 @@ def print_hubspot_checklist():
     else:
         action_instructions = (
             "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with CRM read and write scopes "
-            "(crm.objects.contacts.read/write, crm.objects.companies.read/write, crm.objects.deals.read/write, crm.objects.owners.read, crm.objects.tickets.read/write, tickets), "
+            "(crm.objects.contacts.read/write, crm.objects.companies.read/write, crm.objects.deals.read/write, crm.objects.owners.read, crm.objects.tickets.read/write), "
             "and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")."
             if enable_actions
             else "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with CRM read scopes "
-            "(crm.objects.contacts.read, crm.objects.companies.read, crm.objects.deals.read, crm.objects.owners.read, crm.objects.tickets.read, tickets), "
+            "(crm.objects.contacts.read, crm.objects.companies.read, crm.objects.deals.read, crm.objects.owners.read, crm.objects.tickets.read), "
             "and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")."
         )
     try:

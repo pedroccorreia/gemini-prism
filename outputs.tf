@@ -273,17 +273,15 @@ output "hubspot_checklist" {
         "crm.objects.contacts.write",
         "crm.objects.companies.write",
         "crm.objects.deals.write",
-        "crm.objects.tickets.write",
-        "tickets"
+        "crm.objects.tickets.write"
         ] : [
         "crm.objects.contacts.read",
         "crm.objects.companies.read",
         "crm.objects.deals.read",
         "crm.objects.owners.read",
-        "crm.objects.tickets.read",
-        "tickets"
+        "crm.objects.tickets.read"
       ]
-      action_instructions = contains(["OAUTH", "OAUTH2"], upper(trimspace(var.hubspot_auth_type))) ? "Google-Managed OAuth (hubspot_auth_type = \"OAUTH\") requires no TF_VAR_hubspot_auth secrets—apply Stage 3, have the HubSpot administrator click Authorize on the HubSpot data store in the Google Cloud Console (Gemini Enterprise > Data Stores), and have end users click Connect next to HubSpot in the Gemini Enterprise Web App Sources panel." : (coalesce(var.hubspot_config.enable_actions, false) ? "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with CRM read and write scopes (crm.objects.contacts.read/write, crm.objects.companies.read/write, crm.objects.deals.read/write, crm.objects.owners.read, crm.objects.tickets.read/write, tickets), and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")." : "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with required CRM read scopes, and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\").")
+      action_instructions = contains(["OAUTH", "OAUTH2"], upper(trimspace(var.hubspot_auth_type))) ? "Google-Managed OAuth (hubspot_auth_type = \"OAUTH\") requires no TF_VAR_hubspot_auth secrets—apply Stage 3, have the HubSpot administrator click Authorize on the HubSpot data store in the Google Cloud Console (Gemini Enterprise > Data Stores), and have end users click Connect next to HubSpot in the Gemini Enterprise Web App Sources panel." : (coalesce(var.hubspot_config.enable_actions, false) ? "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with CRM read and write scopes (crm.objects.contacts.read/write, crm.objects.companies.read/write, crm.objects.deals.read/write, crm.objects.owners.read, crm.objects.tickets.read/write), and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")." : "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with required CRM read scopes, and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\").")
     }
   }
 }

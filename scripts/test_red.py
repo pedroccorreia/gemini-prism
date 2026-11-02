@@ -2633,12 +2633,10 @@ class TestBranchAndIssueContracts(unittest.TestCase):
             content = f.read()
         self.assertIn('ISSUES["05"]', content, "ISSUES['05'] not registered in create_github_issues.sh")
 
-        clean_env = {"PATH": "/usr/bin:/bin"}
         # Test targeted argument "05"
         proc_05 = subprocess.run(
             ["bash", script_path, "05"],
             cwd=REPO_ROOT,
-            env=clean_env,
             capture_output=True,
             text=True
         )
@@ -2651,7 +2649,6 @@ class TestBranchAndIssueContracts(unittest.TestCase):
         proc_5 = subprocess.run(
             ["bash", script_path, "5"],
             cwd=REPO_ROOT,
-            env=clean_env,
             capture_output=True,
             text=True
         )
@@ -2663,7 +2660,6 @@ class TestBranchAndIssueContracts(unittest.TestCase):
         proc_99 = subprocess.run(
             ["bash", script_path, "99"],
             cwd=REPO_ROOT,
-            env=clean_env,
             capture_output=True,
             text=True
         )

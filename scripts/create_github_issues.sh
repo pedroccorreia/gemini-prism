@@ -26,10 +26,9 @@ if [ -n "${TARGET_ARG}" ]; then
   if [[ "${TARGET_ARG}" =~ ^[0-9]+$ ]]; then
     KEY=$(printf "%02d" "$((10#${TARGET_ARG}))")
   else
-    echo "Error: Unknown issue key '${TARGET_ARG}'. Available keys: 01, 02, 03, 04, 05" >&2
-    exit 1
+    KEY="${TARGET_ARG}"
   fi
-  if [ -z "${ISSUES[10#${KEY}]:-}" ]; then
+  if [ -z "${ISSUES[${KEY}]:-}" ]; then
     echo "Error: Unknown issue key '${TARGET_ARG}'. Available keys: 01, 02, 03, 04, 05" >&2
     exit 1
   fi

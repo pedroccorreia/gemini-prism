@@ -478,7 +478,7 @@ variable "hubspot_config" {
     entities                     = optional(list(string), ["contacts", "companies", "deals", "tickets"])
     static_ip_enabled            = optional(bool, false)
     enable_actions               = optional(bool, false)
-    enabled_actions              = optional(list(string), [])
+    enabled_actions              = optional(list(string), ["manage_crm_objects"])
     auto_run_disabled            = optional(bool, false)
     incremental_sync_disabled    = optional(bool, false)
     extra_params                 = optional(map(string), {})

@@ -1091,12 +1091,64 @@ def print_people_directory_checklist():
 
 def print_hubspot_checklist():
     """Fetch terraform hubspot_checklist output (or fallback to terraform.tfvars) and output JSON."""
+    default_hubspot_actions = [
+        "manage_crm_objects",
+    ]
+    tfvars = parse_tfvars(os.path.join(os.getcwd(), "terraform.tfvars")) or {}
+    hubspot_cfg = tfvars.get("hubspot_config", {}) if isinstance(tfvars.get("hubspot_config"), dict) else {}
+    enable_actions = bool(hubspot_cfg.get("enable_actions", False))
+    base_modes = list(hubspot_cfg.get("connector_modes", ["FEDERATED"]))
+    if enable_actions and "ACTIONS" not in base_modes:
+        base_modes.append("ACTIONS")
+    configured_actions = hubspot_cfg.get("enabled_actions") or []
+    effective_actions = (configured_actions if len(configured_actions) > 0 else default_hubspot_actions) if enable_actions else []
+    required_scopes = [
+        "crm.objects.contacts.read",
+        "crm.objects.companies.read",
+        "crm.objects.deals.read",
+        "crm.objects.owners.read",
+        "crm.objects.tickets.read",
+        *(
+            [
+                "crm.objects.contacts.write",
+                "crm.objects.companies.write",
+                "crm.objects.deals.write",
+                "crm.objects.tickets.write",
+            ]
+            if enable_actions
+            else []
+        )
+    ]
+    hs_auth_type = str(tfvars.get("hubspot_auth_type", "SERVICE_KEY")).strip().upper()
+    if hs_auth_type in ("OAUTH", "OAUTH2"):
+        action_instructions = (
+            "Google-Managed OAuth (hubspot_auth_type = \"OAUTH\") requires no TF_VAR_hubspot_auth secrets—"
+            "apply Stage 3, have the HubSpot administrator click Authorize on the HubSpot data store in the Google Cloud Console "
+            "(Gemini Enterprise > Data Stores), and have end users click Connect next to HubSpot in the Gemini Enterprise Web App Sources panel."
+        )
+    else:
+        action_instructions = (
+            "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with CRM read and write scopes "
+            "(crm.objects.contacts.read/write, crm.objects.companies.read/write, crm.objects.deals.read/write, crm.objects.owners.read, crm.objects.tickets.read/write), "
+            "and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")."
+            if enable_actions
+            else "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with CRM read scopes "
+            "(crm.objects.contacts.read, crm.objects.companies.read, crm.objects.deals.read, crm.objects.owners.read, crm.objects.tickets.read), "
+            "and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")."
+        )
     try:
         raw = subprocess.check_output(["terraform", "output", "-json", "hubspot_checklist"], text=True, stderr=subprocess.DEVNULL)
         data = json.loads(raw)
+        if isinstance(data, dict) and hubspot_cfg:
+            for _env, info in data.items():
+                if isinstance(info, dict):
+                    info["connector_modes"] = base_modes
+                    info["enable_actions"] = enable_actions
+                    info["enabled_actions"] = effective_actions
+                    info["oauth_callback_url"] = "https://vertexaisearch.cloud.google.com/oauth-redirect"
+                    info["required_scopes"] = required_scopes
+                    info["action_instructions"] = action_instructions
     except Exception:
-        tfvars = parse_tfvars(os.path.join(os.getcwd(), "terraform.tfvars")) or {}
-        hubspot_cfg = tfvars.get("hubspot_config", {})
         envs = tfvars.get("environments", ["non-prod", "prod"])
         uri = hubspot_cfg.get("instance_uri", "https://api.hubapi.com")
         portal_id = hubspot_cfg.get("portal_id", "")
@@ -1109,17 +1161,14 @@ def print_hubspot_checklist():
                 "auth_type": auth_type,
                 "collection_id": hubspot_cfg.get("collection_id", "hubspot-federated-collection"),
                 "data_source": hubspot_cfg.get("data_source", "hubspot"),
-                "connector_modes": hubspot_cfg.get("connector_modes", ["FEDERATED"]),
+                "connector_modes": base_modes,
+                "enable_actions": enable_actions,
+                "enabled_actions": effective_actions,
                 "entities": hubspot_cfg.get("entities", ["contacts", "companies", "deals", "tickets"]),
+                "oauth_callback_url": "https://vertexaisearch.cloud.google.com/oauth-redirect",
                 "hubspot_console_url": "https://app.hubspot.com",
-                "required_scopes": [
-                    "crm.objects.contacts.read",
-                    "crm.objects.companies.read",
-                    "crm.objects.deals.read",
-                    "crm.objects.owners.read",
-                    "tickets"
-                ],
-                "action_instructions": "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with CRM read scopes (crm.objects.contacts.read, crm.objects.companies.read, crm.objects.deals.read, crm.objects.owners.read, tickets), and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")."
+                "required_scopes": required_scopes,
+                "action_instructions": action_instructions,
             }
             for env in envs
         }

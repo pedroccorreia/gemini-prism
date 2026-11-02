@@ -14,7 +14,7 @@ echo "  Prism Connector Feature Requests — GitHub Issue Publisher"
 echo "  Target Repository: ${REPO}"
 echo "================================================================="
 
-declare -A ISSUES
+declare -a ISSUES
 ISSUES["01"]="feat(connector): Support Atlassian Confluence Data Connector|enhancement,connector,priority:p1,atlassian|${ISSUES_DIR}/01_confluence_connector.md"
 ISSUES["02"]="feat(connector): Support Slack Enterprise Data Connector|enhancement,connector,priority:p2,collaboration|${ISSUES_DIR}/02_slack_connector.md"
 ISSUES["03"]="feat(connector): Support HubSpot CRM Data Connector|enhancement,connector,priority:p3,crm|${ISSUES_DIR}/03_hubspot_connector.md"

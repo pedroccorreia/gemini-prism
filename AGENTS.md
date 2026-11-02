@@ -40,7 +40,7 @@ When entering Stage 0 (`make status --json` reports `phase: 0`):
 | **Stage 2** | Atlassian Jira authorization / URI missing | Valid Jira URI & credentials configured | `jira` |
 | **Stage 2** | Atlassian Confluence authorization / URI missing | Valid Confluence URI & credentials configured | `confluence` |
 | **Stage 2** | Slack Enterprise authorization / URI missing | Valid Slack URI / `team_id` & credentials configured | `slack` |
-| **Stage 2** | HubSpot CRM authorization / token missing | Valid HubSpot service key (`TF_VAR_hubspot_auth`) configured | `hubspot` |
+| **Stage 2** | HubSpot CRM authorization / token missing | `hubspot_auth_type = "OAUTH"` or valid HubSpot service key (`TF_VAR_hubspot_auth`) configured | `hubspot` |
 | **Stage 4** | Missing billing subscription IDs | Subscription IDs set in tfvars | `subscription` |
 
 ## Phase Detection (`make status --json`)
@@ -92,8 +92,8 @@ Set slack_config.instance_uri (and optional team_id) in terraform.tfvars; option
 ### `hubspot`
 ```text
 ACTION REQUIRED (HubSpot Admin): Configure HubSpot CRM authorization.
-Run `make hubspot-checklist` to view the required CRM read scopes and target entities (contacts, companies, deals, tickets).
-Create a Service Key in https://app.hubspot.com (Development > Keys > Service Keys) (pat-ap1-...) and set TF_VAR_hubspot_auth='{"oauth_access_token":"pat-ap1-..."}'.
+Run `make hubspot-checklist` to view the required CRM read/write scopes and target entities (contacts, companies, deals, tickets).
+Either set hubspot_auth_type = "OAUTH" in terraform.tfvars for Google-Managed OAuth (Admin authorizes in GCP Console Data Stores UI), or create a Service Key in https://app.hubspot.com (Development > Keys > Service Keys) (pat-ap1-...) and set TF_VAR_hubspot_auth='{"oauth_access_token":"pat-ap1-..."}'.
 ```
 ### `permissions`
 ```text

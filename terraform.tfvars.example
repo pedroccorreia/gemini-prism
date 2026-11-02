@@ -160,10 +160,12 @@ hubspot_config = {
   entities                     = ["contacts", "companies", "deals", "tickets"]
   static_ip_enabled            = false
   enable_actions               = false
-  enabled_actions              = []
+  enabled_actions              = ["manage_crm_objects"]
 }
 
-# Note: Sensitive HubSpot Service Key / Private App token credentials should be passed via TF_VAR_hubspot_auth environment variable, e.g.:
+# Note: Set hubspot_auth_type = "OAUTH" to use Google-Managed HubSpot OAuth (requires NO TF_VAR_hubspot_auth secrets;
+# the HubSpot Admin clicks Authorize on the data store in the GCP Console, and users click Connect in the Web App).
+# Alternatively, for hubspot_auth_type = "SERVICE_KEY", pass your Private App / Service Key via TF_VAR_hubspot_auth:
 # export TF_VAR_hubspot_auth='{"oauth_access_token":"pat-ap1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"}'
 # or
 # export TF_VAR_hubspot_auth='{"service_key":"pat-ap1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"}'

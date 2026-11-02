@@ -175,9 +175,9 @@ stateDiagram-v2
    - **Option A — Default Google-Managed OAuth (`slack_auth_type = "OAUTH"`, `v3` Federated + Actions):** No `TF_VAR_slack_auth` secret is required; set `slack_config.instance_uri` (e.g. `https://your-workspace.slack.com`) and optional `slack_config.team_id` (`T...` or `E...`) in `terraform.tfvars`. End users authorize Slack directly via **Sources → Connect** in the Gemini Enterprise Web App.
    - **Option B — Custom BYO Slack OAuth App (`slack_auth_type = "OAUTH"`):** Create a Slack App at [api.slack.com/apps](https://api.slack.com/apps) with redirect URL `https://vertexaisearch.cloud.google.com/oauth-redirect`, configure scopes from `make slack-checklist`, and export `export TF_VAR_slack_auth='{"client_id":"...","client_secret":"...","team_id":"T01234567"}'`.
 8. If HubSpot CRM is planned (`"hubspot"` in `planned_connectors` or `enable_hubspot_connector = true`):
-   - Run `make hubspot-checklist` to view the HubSpot CRM API endpoint (`https://api.hubapi.com`), target federated entities (`contacts`, `companies`, `deals`, `tickets`), and required Private App / Service Key scopes.
-   - In [HubSpot > Development > Keys > Service Keys](https://app.hubspot.com), create a Service Key with CRM read scopes (`crm.objects.contacts.read`, `crm.objects.companies.read`, `crm.objects.deals.read`, `crm.objects.owners.read`, `tickets`) and copy the generated service key (`pat-ap1-...`).
-   - Supply the service key via environment variable: `export TF_VAR_hubspot_auth='{"service_key":"pat-ap1-..."}`.
+   - Run `make hubspot-checklist` to view the HubSpot CRM API endpoint (`https://api.hubapi.com`), target federated entities (`contacts`, `companies`, `deals`, `tickets`), write actions (`manage_crm_objects`), and required scopes.
+   - **Option A — Google-Managed OAuth (`hubspot_auth_type = "OAUTH"`):** Requires **no** `TF_VAR_hubspot_auth` secret. After Stage 3 (`make apply-connectors`), the HubSpot Admin clicks **Authorize** on the HubSpot data store in the Google Cloud Console (`Gemini Enterprise > Data Stores`), and end users click **Connect** next to HubSpot in the Gemini Enterprise Web App (`Sources` panel).
+   - **Option B — HubSpot Service Key (`hubspot_auth_type = "SERVICE_KEY"`):** In [HubSpot > Development > Keys > Service Keys](https://app.hubspot.com), create a Service Key (`pat-ap1-...`) with CRM read scopes (`crm.objects.contacts.read`, `crm.objects.companies.read`, `crm.objects.deals.read`, `crm.objects.owners.read`, `crm.objects.tickets.read`, `tickets`) and CRM write scopes (`crm.objects.contacts.write`, `crm.objects.companies.write`, `crm.objects.deals.write`, `crm.objects.tickets.write` when `enable_actions = true`), and supply it via `export TF_VAR_hubspot_auth='{"service_key":"pat-ap1-..."}'`.
 9. If Google People & Org Directory is planned (`"people_directory"` in `planned_connectors` or `enable_people_directory_connector = true`):
    - Run `make people-checklist` to view directory configuration, target entities, and sync parameters.
    - People Directory reuses the DWD authorization above; ensure all Directory scopes (`user.readonly`, `orgunit.readonly`, `userschema.readonly`, `directory.readonly`) are authorized.
@@ -185,14 +185,14 @@ stateDiagram-v2
    ```bash
    make enable-connectors
    ```
-   The enablement helper verifies that all prerequisites and credentials for `planned_connectors` are configured and valid (Workspace domain and customer ID, Jira/Confluence instance URI and OAuth credentials, Slack workspace URI, HubSpot service key, People Directory scopes), then automatically flips the corresponding `enable_* = true` flags in `terraform.tfvars` (`enable_connectors`, `enable_jira_connector`, `enable_confluence_connector`, `enable_slack_connector`, `enable_hubspot_connector`, and/or `enable_people_directory_connector`). Alternatively, set flags manually in `terraform.tfvars`.
+   The enablement helper verifies that all prerequisites and credentials for `planned_connectors` are configured and valid (Workspace domain and customer ID, Jira/Confluence instance URI and OAuth credentials, Slack workspace URI, HubSpot OAuth or service key, People Directory scopes), then automatically flips the corresponding `enable_* = true` flags in `terraform.tfvars` (`enable_connectors`, `enable_jira_connector`, `enable_confluence_connector`, `enable_slack_connector`, `enable_hubspot_connector`, and/or `enable_people_directory_connector`). Alternatively, set flags manually in `terraform.tfvars`.
 
 **Done when:**
 - Planned connectors are validated and matching `enable_* = true` flags are enabled in `terraform.tfvars` via `make enable-connectors` (or manually set).
 - If `enable_jira_connector = true`, `jira_config.instance_uri` is non-empty and non-placeholder.
 - If `enable_confluence_connector = true`, `confluence_config.instance_uri` (or inherited `jira_config.instance_uri`) is non-empty and non-placeholder.
 - If `enable_slack_connector = true`, `slack_config.instance_uri` (and/or `slack_config.team_id`) is non-empty and non-placeholder.
-- If `enable_hubspot_connector = true`, `TF_VAR_hubspot_auth` (or `.env.hubspot`) is configured with a valid service key (`pat-...`).
+- If `enable_hubspot_connector = true`, either `hubspot_auth_type = "OAUTH"` is set (Google-Managed OAuth) or `TF_VAR_hubspot_auth` (or `.env.hubspot`) is configured with a valid service key (`pat-...`).
 - `make status` returns exit code 0 (`phase: 3, phase_name: "connectors_and_engines_apply"`).
 
 **If it fails:**
@@ -201,7 +201,7 @@ stateDiagram-v2
 - Jira OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make jira-checklist`, and credentials in `TF_VAR_jira_auth` have access to the target Jira Cloud instance.
 - Confluence OAuth/Token rejection: Verify Atlassian 3LO app redirect URI and scopes match `make confluence-checklist`, and credentials in `TF_VAR_confluence_auth` (or fallback `TF_VAR_jira_auth`) have access to the target Confluence Cloud instance.
 - Slack OAuth rejection: Verify `slack_config.instance_uri` and `slack_config.team_id` match the target workspace, and (if using BYO OAuth) verify `TF_VAR_slack_auth` `client_id` / `client_secret` and redirect URL match `make slack-checklist`.
-- HubSpot token rejection: Verify the Service Key (`pat-ap1-...`) in `TF_VAR_hubspot_auth` has the required CRM read scopes from `make hubspot-checklist`.
+- HubSpot token rejection: Verify the Service Key (`pat-ap1-...`) in `TF_VAR_hubspot_auth` has the required CRM read and write scopes from `make hubspot-checklist`.
 - Enablement helper reports missing prerequisites: Run `make check-inputs` to identify unresolved variables and consult the Help Center reference table below.
 
 ### Connector Help Center Reference Table
@@ -212,7 +212,7 @@ stateDiagram-v2
 | **Atlassian Jira Cloud** | `FEDERATED` | [Jira Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/jira-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/)<br/>[Atlassian Admin Console](https://admin.atlassian.com) | Atlassian Org Admin / Site Admin<br/>OAuth 2.0 (3LO) App / Token (`TF_VAR_jira_auth`) |
 | **Atlassian Confluence** | `FEDERATED` | [Confluence Cloud Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/confluence-cloud) | [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) | Atlassian Org Admin / Site Admin<br/>OAuth 2.0 (3LO) or Shared Jira credentials |
 | **Slack Enterprise** | `FEDERATED` + `ACTIONS` | [Slack Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/slack) | [Slack API Apps Console](https://api.slack.com/apps)<br/>[Slack Workspace Admin](https://app.slack.com/manage) | Slack Workspace Owner / Org Admin<br/>Google-Managed OAuth (0 secrets) or BYO OAuth App (`TF_VAR_slack_auth`) |
-| **HubSpot CRM** | `FEDERATED` | [HubSpot Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot) | [HubSpot App Console](https://app.hubspot.com) | HubSpot Super Admin<br/>Service Key (`TF_VAR_hubspot_auth`) |
+| **HubSpot CRM** | `FEDERATED` + `ACTIONS` | [HubSpot Connector Guide](https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot) | [HubSpot App Console](https://app.hubspot.com) | HubSpot Super Admin<br/>Service Key (`TF_VAR_hubspot_auth`) or OAuth |
 | **Google People Directory** | `DATA_INGESTION` (Incremental) | [Google Directory API Guide](https://developers.google.com/admin-sdk/directory/v1/guides)<br/>[Cloud Identity Docs](https://cloud.google.com/identity/docs/) | [Workspace DWD Console](https://admin.google.com/ac/owl/domainwidedelegation) | Google Workspace Super Admin<br/>Service Agent DWD (0 additional credentials) |
 
 **Checklist:**

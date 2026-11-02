@@ -15,7 +15,7 @@ Prism unifies disparate enterprise knowledge systems into **Google Gemini Enterp
 | **Current** | **People Directory** | Google Cloud Identity / Workspace | User Profiles, Org Chart, Manager Hierarchy, Offices | Discovery Engine DWD SA | `v1.2.0` | 🟢 **GA (Shipped)** |
 | **Current** | **Atlassian Confluence** | Confluence Cloud / DC | Spaces, Pages, Blogposts, Attachments, Comments (Federated Cloud v4 / DC v1) | OAuth 2.0 (3LO) / DC Basic Auth / Jira Fallback | `v1.3.0` | 🟢 **GA (Shipped)** |
 | **Current** | **Slack Enterprise** | Slack Enterprise Grid / Workspace | Conversations, Messages, Files + MCP Actions (`FEDERATED`) | Google-Managed OAuth 2.0 / BYO App (`v3`) | `v1.4.0` | 🟢 **GA (Shipped)** |
-| **Current** | **HubSpot CRM** | HubSpot Cloud | Contacts, Companies, Deals, Tickets (`FEDERATED`) | HubSpot Service Key (`TF_VAR_hubspot_auth`) | `v1.5.0` | 🟢 **GA (Shipped)** |
+| **Current** | **HubSpot CRM** | HubSpot Cloud | Contacts, Companies, Deals, Tickets + CRM Actions (`FEDERATED`) | HubSpot Service Key (`TF_VAR_hubspot_auth`) / OAuth | `v1.5.0` | 🟢 **GA (Shipped)** |
 
 ---
 
@@ -39,9 +39,9 @@ Prism unifies disparate enterprise knowledge systems into **Google Gemini Enterp
 
 ### 3. HubSpot CRM Connector (Shipped GA)
 - **Repository Issue:** [.github/issues/03_hubspot_connector.md](../.github/issues/03_hubspot_connector.md)
-- **Objective:** Enable real-time federated conversational retrieval over CRM contacts, companies, deals, and support tickets.
-- **Architectural Mode:** Native **`FEDERATED`** mode via Discovery Engine HubSpot connector (`hubspot-federated-collection`).
-- **Security:** Service Key (`pat-...`) passed via `TF_VAR_hubspot_auth` / `.env.hubspot`.
+- **Objective:** Enable real-time federated conversational retrieval and CRM object write actions over contacts, companies, deals, and support tickets.
+- **Architectural Mode:** Native **`FEDERATED`** + **`ACTIONS`** mode via Discovery Engine HubSpot connector (`hubspot-federated-collection`).
+- **Security:** Service Key (`pat-...`) with CRM read/write scopes passed via `TF_VAR_hubspot_auth` / `.env.hubspot` (or OAuth).
 - **Status:** 🟢 **Shipped (v1.5.0)** — Configurable via `enable_hubspot_connector`, `hubspot_auth`, and `hubspot_config` with helper `make hubspot-checklist`.
 
 ### 4. Google People & Org Directory Connector (Shipped GA)

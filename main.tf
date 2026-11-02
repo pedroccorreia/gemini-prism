@@ -604,6 +604,10 @@ locals {
     trimspace(try(var.hubspot_auth.bearer_token, ""))
   ), "")
 
+  default_hubspot_actions = [
+    "manage_crm_objects"
+  ]
+
   effective_hubspot_modes = coalesce(var.hubspot_config.enable_actions, false) ? distinct(concat(coalesce(var.hubspot_config.connector_modes, ["FEDERATED"]), ["ACTIONS"])) : coalesce(var.hubspot_config.connector_modes, ["FEDERATED"])
   is_hubspot_federated    = contains(local.effective_hubspot_modes, "FEDERATED")
 
@@ -633,19 +637,20 @@ locals {
       incremental_sync_disabled    = local.is_hubspot_federated ? null : var.hubspot_config.incremental_sync_disabled
       instance_uri                 = try(coalesce(var.hubspot_config.instance_uri), "https://api.hubapi.com")
       params = merge(
-        local.effective_hubspot_token != "" ? { "oauth_access_token" = local.effective_hubspot_token } : {},
+        local.effective_hubspot_token != "" ? { "oauth_access_token" = local.effective_hubspot_token } : { "unused_auth_param" = "unused" },
         trimspace(try(coalesce(var.hubspot_auth.client_id), "")) != "" ? { "client_id" = var.hubspot_auth.client_id } : {},
         trimspace(try(coalesce(var.hubspot_auth.client_secret), "")) != "" ? { "client_secret" = var.hubspot_auth.client_secret } : {},
         trimspace(try(coalesce(var.hubspot_auth.refresh_token), "")) != "" ? { "refresh_token" = var.hubspot_auth.refresh_token } : {},
         coalesce(var.hubspot_config.extra_params, {})
       )
-      action_params = merge(
-        local.effective_hubspot_token != "" ? { "oauth_access_token" = local.effective_hubspot_token } : {},
-        trimspace(try(coalesce(var.hubspot_auth.client_id), "")) != "" ? { "client_id" = var.hubspot_auth.client_id } : {},
-        trimspace(try(coalesce(var.hubspot_auth.client_secret), "")) != "" ? { "client_secret" = var.hubspot_auth.client_secret } : {}
-      )
+      action_params = trimspace(try(coalesce(var.hubspot_auth.client_id), "")) != "" ? {
+        "auth_type"     = "OAUTH"
+        "auth_key"      = "ByoOAuth"
+        "client_id"     = var.hubspot_auth.client_id
+        "client_secret" = try(coalesce(var.hubspot_auth.client_secret), "")
+      } : {}
       enable_actions  = coalesce(var.hubspot_config.enable_actions, false)
-      enabled_actions = coalesce(var.hubspot_config.enabled_actions, [])
+      enabled_actions = local.default_hubspot_actions
     }
   } : {}
 

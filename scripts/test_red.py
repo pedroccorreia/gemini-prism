@@ -1530,6 +1530,43 @@ class TestStatusPhaseDetection(unittest.TestCase):
             self.assertEqual(out["prod"]["data_source"], "hubspot")
             self.assertEqual(out["prod"]["connector_modes"], ["FEDERATED"])
             self.assertEqual(out["prod"]["entities"], ["contacts", "companies", "deals", "tickets"])
+            self.assertFalse(out["prod"]["enable_actions"])
+            self.assertEqual(out["prod"]["enabled_actions"], [])
+
+            self._create_tfvars({
+                "customer_id": "testcust",
+                "environments": ["prod"],
+                "hubspot_config": {
+                    "instance_uri": "https://api.hubapi.com",
+                    "portal_id": "12345678",
+                    "enable_actions": True,
+                }
+            })
+            buf2 = io.StringIO()
+            with redirect_stdout(buf2):
+                status_module.print_hubspot_checklist()
+            out_actions = json.loads(buf2.getvalue())
+            self.assertEqual(out_actions["prod"]["connector_modes"], ["FEDERATED", "ACTIONS"])
+            self.assertTrue(out_actions["prod"]["enable_actions"])
+            self.assertEqual(out_actions["prod"]["enabled_actions"], ["manage_crm_objects"])
+            self.assertIn("crm.objects.contacts.write", out_actions["prod"]["required_scopes"])
+            self.assertIn("crm.objects.deals.write", out_actions["prod"]["required_scopes"])
+
+            self._create_tfvars({
+                "customer_id": "testcust",
+                "environments": ["prod"],
+                "hubspot_auth_type": "OAUTH",
+                "hubspot_config": {
+                    "instance_uri": "https://api.hubapi.com",
+                    "enable_actions": True,
+                }
+            })
+            buf3 = io.StringIO()
+            with redirect_stdout(buf3):
+                status_module.print_hubspot_checklist()
+            out_oauth = json.loads(buf3.getvalue())
+            self.assertEqual(out_oauth["prod"]["auth_type"], "OAUTH")
+            self.assertIn("Google-Managed OAuth", out_oauth["prod"]["action_instructions"])
         finally:
             os.chdir(prev_cwd)
 
@@ -1950,7 +1987,10 @@ class TestTerraformDefaultsContract(unittest.TestCase):
         self.assertTrue(re.search(r'^\s*enable_hubspot_connector\s*=\s*false\b', example_content, re.MULTILINE))
         self.assertTrue(re.search(r'^\s*hubspot_auth_type\s*=\s*"SERVICE_KEY"', example_content, re.MULTILINE))
         self.assertIn('entities                     = optional(list(string), ["contacts", "companies", "deals", "tickets"])', vars_content)
+        self.assertIn('enabled_actions              = optional(list(string), ["manage_crm_objects"])', vars_content)
         self.assertIn('"oauth_access_token" = local.effective_hubspot_token', main_content)
+        self.assertIn('"unused_auth_param" = "unused"', main_content)
+        self.assertIn('default_hubspot_actions', main_content)
         self.assertIn('https://api.hubapi.com', main_content)
 
     def test_tfvars_example_defaults_people_directory(self):
@@ -2557,7 +2597,7 @@ class TestBranchAndIssueContracts(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertIn(
             proc.stdout.strip(),
-            ["Slack-Data-Connector", "feat/interactive-connector-onboarding", "feat/geap-governance-foundation", "feat/hubspot-data-connector", "hubspot-data-connector", "main", ""]
+            ["Slack-Data-Connector", "feat/interactive-connector-onboarding", "feat/geap-governance-foundation", "feat/hubspot-data-connector", "hubspot-data-connector", "bugfix/fix-hubspot-connector", "main", ""]
         )
 
     def test_issue_05_specification_contract(self):

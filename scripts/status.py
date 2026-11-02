@@ -1093,14 +1093,6 @@ def print_hubspot_checklist():
     """Fetch terraform hubspot_checklist output (or fallback to terraform.tfvars) and output JSON."""
     default_hubspot_actions = [
         "manage_crm_objects",
-        "create_contact",
-        "update_contact",
-        "create_company",
-        "update_company",
-        "create_deal",
-        "update_deal",
-        "create_ticket",
-        "update_ticket",
     ]
     tfvars = parse_tfvars(os.path.join(os.getcwd(), "terraform.tfvars")) or {}
     hubspot_cfg = tfvars.get("hubspot_config", {}) if isinstance(tfvars.get("hubspot_config"), dict) else {}
@@ -1128,15 +1120,23 @@ def print_hubspot_checklist():
         ),
         "tickets",
     ]
-    action_instructions = (
-        "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with CRM read and write scopes "
-        "(crm.objects.contacts.read/write, crm.objects.companies.read/write, crm.objects.deals.read/write, crm.objects.owners.read, crm.objects.tickets.read/write, tickets), "
-        "and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")."
-        if enable_actions
-        else "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with CRM read scopes "
-        "(crm.objects.contacts.read, crm.objects.companies.read, crm.objects.deals.read, crm.objects.owners.read, crm.objects.tickets.read, tickets), "
-        "and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")."
-    )
+    hs_auth_type = str(tfvars.get("hubspot_auth_type", "SERVICE_KEY")).strip().upper()
+    if hs_auth_type in ("OAUTH", "OAUTH2"):
+        action_instructions = (
+            "Google-Managed OAuth (hubspot_auth_type = \"OAUTH\") requires no TF_VAR_hubspot_auth secrets—"
+            "apply Stage 3, have the HubSpot administrator click Authorize on the HubSpot data store in the Google Cloud Console "
+            "(Gemini Enterprise > Data Stores), and have end users click Connect next to HubSpot in the Gemini Enterprise Web App Sources panel."
+        )
+    else:
+        action_instructions = (
+            "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with CRM read and write scopes "
+            "(crm.objects.contacts.read/write, crm.objects.companies.read/write, crm.objects.deals.read/write, crm.objects.owners.read, crm.objects.tickets.read/write, tickets), "
+            "and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")."
+            if enable_actions
+            else "Create a HubSpot Service Key at https://app.hubspot.com (Development > Keys > Service Keys) with CRM read scopes "
+            "(crm.objects.contacts.read, crm.objects.companies.read, crm.objects.deals.read, crm.objects.owners.read, crm.objects.tickets.read, tickets), "
+            "and supply your service key (pat-ap1-...) via TF_VAR_hubspot_auth='{\"oauth_access_token\":\"pat-ap1-...\"}' (or \"service_key\")."
+        )
     try:
         raw = subprocess.check_output(["terraform", "output", "-json", "hubspot_checklist"], text=True, stderr=subprocess.DEVNULL)
         data = json.loads(raw)

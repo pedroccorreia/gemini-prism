@@ -700,13 +700,18 @@ def audit_inputs(tfvars=None, planned_connectors=None, workdir="."):
 
     # 4. HubSpot variables if planned
     if "hubspot" in planned_connectors:
+        hs_auth_type = str(tfvars.get("hubspot_auth_type", "SERVICE_KEY")).strip().upper()
         has_hubspot_cred = (
             bool(os.environ.get("TF_VAR_hubspot_auth")) or
             os.path.exists(os.path.join(workdir, ".env.hubspot")) or
             bool(tfvars.get("hubspot_auth"))
         )
         meta_hs_auth = VARIABLE_METADATA["hubspot_auth"]
-        if not has_hubspot_cred:
+        if has_hubspot_cred:
+            configured_variables["hubspot_auth"] = "********"
+        elif hs_auth_type in ("OAUTH", "OAUTH2"):
+            configured_variables["hubspot_auth"] = "Google-Managed OAuth (UI Authorize)"
+        else:
             missing_variables.append({
                 "name": "hubspot_auth",
                 "description": meta_hs_auth["description"],
@@ -719,8 +724,6 @@ def audit_inputs(tfvars=None, planned_connectors=None, workdir="."):
                 "help_center_url": meta_hs_auth["help_center_url"],
                 "help_url": meta_hs_auth["help_center_url"],
             })
-        else:
-            configured_variables["hubspot_auth"] = "********"
 
     # 5. Workspace Actions OAuth variables if workspace actions enabled
     if is_workspace_actions_enabled(tfvars):
@@ -1546,13 +1549,14 @@ def enable_connectors(workdir=".", state_path=None, tfvars_path=None, json_outpu
         hubspot_modes = hubspot_cfg.get("connector_modes", ["FEDERATED"])
         if "DATA_INGESTION" in hubspot_modes or "FEDERATED" not in hubspot_modes:
             errors.append("HubSpot prerequisite invalid: HubSpot connector must use FEDERATED mode (connector_modes = [\"FEDERATED\"]).")
+        hs_auth_type = str(tfvars.get("hubspot_auth_type", "SERVICE_KEY")).strip().upper()
         has_hubspot_cred = (
             bool(os.environ.get("TF_VAR_hubspot_auth")) or
             os.path.exists(os.path.join(workdir, ".env.hubspot")) or
             bool(tfvars.get("hubspot_auth"))
         )
-        if not has_hubspot_cred:
-            errors.append("HubSpot prerequisite missing: Service key / token credentials not found in TF_VAR_hubspot_auth, .env.hubspot, or terraform.tfvars.")
+        if not has_hubspot_cred and hs_auth_type not in ("OAUTH", "OAUTH2"):
+            errors.append("HubSpot prerequisite missing: Service key / token credentials not found in TF_VAR_hubspot_auth, .env.hubspot, or terraform.tfvars (or set hubspot_auth_type = \"OAUTH\" for Google-Managed OAuth).")
 
     if errors:
         if json_output:
@@ -1628,18 +1632,14 @@ def resolve_workspace_oauth(tfvars=None, workdir="."):
 
 
 def resolve_hubspot_auth(tfvars=None, workdir="."):
-    """Resolve HubSpot service key or OAuth credentials from environment, .env.hubspot, or tfvars."""
-    token_keys = ("oauth_access_token", "service_key", "private_app_access_token", "api_token", "bearer_token")
+    """Resolve HubSpot BYO OAuth action credentials (if any) from environment, .env.hubspot, or tfvars.
+    Note: oauth_access_token belongs only in top-level connector params, never in actionConfig.actionParams."""
+    base_params = {"schema": "HubSpotV3"}
 
     def _extract(parsed):
         if not isinstance(parsed, dict):
             return {}
-        out = {}
-        for k in token_keys:
-            val = str(parsed.get(k, "")).strip()
-            if val:
-                out["oauth_access_token"] = val
-                break
+        out = dict(base_params)
         cid = str(parsed.get("client_id", "")).strip()
         csec = str(parsed.get("client_secret", "")).strip()
         if cid:
@@ -1647,7 +1647,8 @@ def resolve_hubspot_auth(tfvars=None, workdir="."):
             out["client_id"] = cid
             if csec:
                 out["client_secret"] = csec
-        return out
+            return out
+        return {}
 
     raw = os.environ.get("TF_VAR_hubspot_auth", "").strip()
     if raw:
@@ -1675,7 +1676,7 @@ def resolve_hubspot_auth(tfvars=None, workdir="."):
         if res:
             return res
 
-    return {}
+    return base_params
 
 
 def sync_workspace_actions(workdir=".", state_path=None, tfvars_path=None):

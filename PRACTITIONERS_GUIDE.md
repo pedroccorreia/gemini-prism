@@ -252,14 +252,14 @@ The repository supports provisioning a dedicated **Google Cloud Identity / Works
 
 The repository supports deploying the **HubSpot CRM Federated Data Connector** (`hubspot-federated-collection`) alongside Google Workspace, Atlassian, and Slack connectors or in a **HubSpot-only** deployment (`enable_connectors = false`, `enable_hubspot_connector = true`).
 
-| Requirement Dimension | Specification & Guidance (`hubspot_auth_type = "SERVICE_KEY"`) |
+| Requirement Dimension | Specification & Guidance (`hubspot_auth_type = "OAUTH"` or `"SERVICE_KEY"`) |
 | :--- | :--- |
 | **Connector Architecture** | `FEDERATED` or `FEDERATED` + `ACTIONS` (`data_source = "hubspot"`, `destination_configs` host `https://api.hubapi.com`). Real-time federated query execution and CRM write actions across HubSpot CRM objects without copying data into persistent GCP storage. |
-| **Provisioned Entities & Actions** | **Entities:** `contacts`, `companies`, `deals`, `tickets` (singular names such as `contact`, `company`, `deal`, `ticket` are automatically normalized in `main.tf`).<br/>**BAP Write Actions (`enable_actions = true`):** `manage_crm_objects`, `create_contact`, `update_contact`, `create_company`, `update_company`, `create_deal`, `update_deal`, `create_ticket`, `update_ticket`. |
-| **HubSpot Service Key Setup** | In [app.hubspot.com](https://app.hubspot.com) (*Development > Keys > Service Keys*), create a Service Key (`pat-ap1-...` / `pat-na1-...` / `pat-eu1-...`) as a HubSpot Super Admin. |
+| **Provisioned Entities & Actions** | **Entities:** `contacts`, `companies`, `deals`, `tickets` (singular names such as `contact`, `company`, `deal`, `ticket` are automatically normalized in `main.tf`).<br/>**BAP Write Actions (`enable_actions = true`):** `manage_crm_objects`. |
+| **Authentication Modes** | • **Google-Managed OAuth (`hubspot_auth_type = "OAUTH"`):** Requires **zero** static secrets (`params = { "unused_auth_param" = "unused" }`). The HubSpot Admin clicks **Authorize** on the HubSpot data store in the GCP Console (`Gemini Enterprise > Data Stores`), and end users click **Connect** in the Gemini Enterprise Web App.<br/>• **Service Key (`hubspot_auth_type = "SERVICE_KEY"`):** In [app.hubspot.com](https://app.hubspot.com) (*Development > Keys > Service Keys*), create a Service Key (`pat-ap1-...`) as a HubSpot Super Admin and supply it via `TF_VAR_hubspot_auth`. |
 | **Required HubSpot CRM Scopes** | **Federated Search:** `crm.objects.contacts.read`, `crm.objects.companies.read`, `crm.objects.deals.read`, `crm.objects.owners.read`, `crm.objects.tickets.read`, `tickets`<br/>**Write Actions (`enable_actions = true`):** `crm.objects.contacts.write`, `crm.objects.companies.write`, `crm.objects.deals.write`, `crm.objects.tickets.write`. |
-| **Required `terraform.tfvars` Settings** | `enable_hubspot_connector = true`, `hubspot_auth_type = "SERVICE_KEY"`, and `hubspot_config` (`instance_uri = "https://api.hubapi.com"`, `connector_modes = ["FEDERATED"]`, `enable_actions = true`). |
-| **Runtime Secret Environment Variable (`TF_VAR_hubspot_auth`)** | `export TF_VAR_hubspot_auth='{"service_key":"pat-ap1-..."}'` *(or `{"oauth_access_token":"pat-ap1-..."}`; both map automatically to Discovery Engine's `oauth_access_token` parameter)*. |
+| **Required `terraform.tfvars` Settings** | `enable_hubspot_connector = true`, `hubspot_auth_type = "OAUTH"` (or `"SERVICE_KEY"`), and `hubspot_config` (`instance_uri = "https://api.hubapi.com"`, `connector_modes = ["FEDERATED"]`, `enable_actions = true`). |
+| **Runtime Secret Environment Variable (`TF_VAR_hubspot_auth`)** | Omit when `hubspot_auth_type = "OAUTH"`. For `"SERVICE_KEY"`, set `export TF_VAR_hubspot_auth='{"service_key":"pat-ap1-..."}'` *(or `{"oauth_access_token":"pat-ap1-..."}`)*. |
 | **Checklist & Helper Target** | `make hubspot-checklist` |
 
 ### 4. Complete Configuration Input Reference (`variables.tf` & `terraform.tfvars`)

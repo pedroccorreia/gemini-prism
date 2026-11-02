@@ -28,7 +28,7 @@ This empowers sales, solutions engineering, and account executives to ask Gemini
   - `crm.objects.owners.read`
   - `crm.schemas.contacts.read`
   - `crm.schemas.deals.read`
-  - `tickets` (for service ticket reading)
+  - `crm.objects.tickets.read`
 
 ### Proposed Terraform Configuration Architecture
 ```hcl

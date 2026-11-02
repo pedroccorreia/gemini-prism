@@ -106,7 +106,7 @@ CONNECTOR_OPTIONS = [
     {
         "value": "hubspot",
         "label": "HubSpot CRM",
-        "description": "HubSpot CRM contacts, companies, deals, and tickets federated search connector",
+        "description": "HubSpot CRM contacts, companies, deals, tickets, and CRM actions federated search connector",
         "docs_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
         "help_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
         "doc_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
@@ -156,6 +156,27 @@ WORKSPACE_ACTIONS_OPTIONS = [
         "docs_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/calendar",
         "help_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/calendar",
         "doc_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/calendar",
+        "default": True,
+    },
+]
+
+HUBSPOT_ACTIONS_OPTIONS = [
+    {
+        "value": "false",
+        "label": "Federated Search Only — CRM Read Baseline",
+        "description": "Provisions HubSpot CRM contacts, companies, deals, and tickets in FEDERATED read-only search mode",
+        "docs_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
+        "help_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
+        "doc_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
+        "default": False,
+    },
+    {
+        "value": "true",
+        "label": "(Recommended) Enable HubSpot CRM Actions (Create & Update Contacts, Companies, Deals & Tickets)",
+        "description": "Enables FEDERATED + ACTIONS mode with BAP CRM write actions (requires crm.objects.*.write scopes on Service Key)",
+        "docs_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
+        "help_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
+        "doc_url": "https://docs.cloud.google.com/gemini/enterprise/docs/connectors/hubspot",
         "default": True,
     },
 ]
@@ -265,7 +286,7 @@ VARIABLE_METADATA = {
         "title": "HubSpot CRM Service Key",
         "description": "HubSpot Service Key (e.g. pat-ap1-...) passed via TF_VAR_hubspot_auth",
         "connector": "hubspot",
-        "where_to_get": "HubSpot > Development > Keys > Service Keys (create Service Key with CRM read scopes and copy access token).",
+        "where_to_get": "HubSpot > Development > Keys > Service Keys (create Service Key with CRM read and write scopes and copy access token).",
         "admin_url": "https://app.hubspot.com",
         "lookup_command": "echo 'export TF_VAR_hubspot_auth={\"oauth_access_token\":\"pat-ap1-...\"}'",
         "required_roles": ["HubSpot Super Admin"],
@@ -911,6 +932,17 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
             return block
         content = re.sub(r'hubspot_config\s*=\s*\{.*?\}', replace_hubspot_pid, content, flags=re.DOTALL)
 
+    hs_act_raw = updates.get("hubspot_enable_actions") if "hubspot_enable_actions" in updates else updates.get("hubspot_config.enable_actions")
+    if hs_act_raw is not None:
+        hs_act_bool = hs_act_raw if isinstance(hs_act_raw, bool) else str(hs_act_raw).strip().lower() in ("true", "1", "yes", "enable", "enabled")
+        hs_act_str = "true" if hs_act_bool else "false"
+        def replace_hubspot_actions(m):
+            block = m.group(0)
+            if re.search(r'enable_actions\s*=\s*(true|false)\b', block):
+                return re.sub(r'(enable_actions\s*=\s*)(true|false)\b', f'\\g<1>{hs_act_str}', block)
+            return block
+        content = re.sub(r'hubspot_config\s*=\s*\{.*?\}', replace_hubspot_actions, content, flags=re.DOTALL)
+
     # 4. Update top-level variables
     skip_keys = {
         "planned_connectors",
@@ -934,8 +966,10 @@ def update_tfvars(tfvars_path, updates, stage=0, allow_enable=False, workdir="."
         "slack_auth",
         "hubspot_instance_uri",
         "hubspot_portal_id",
+        "hubspot_enable_actions",
         "hubspot_config.instance_uri",
         "hubspot_config.portal_id",
+        "hubspot_config.enable_actions",
         "hubspot_auth",
     }
     for k, v in updates.items():
@@ -1593,9 +1627,60 @@ def resolve_workspace_oauth(tfvars=None, workdir="."):
     return "", ""
 
 
+def resolve_hubspot_auth(tfvars=None, workdir="."):
+    """Resolve HubSpot service key or OAuth credentials from environment, .env.hubspot, or tfvars."""
+    token_keys = ("oauth_access_token", "service_key", "private_app_access_token", "api_token", "bearer_token")
+
+    def _extract(parsed):
+        if not isinstance(parsed, dict):
+            return {}
+        out = {}
+        for k in token_keys:
+            val = str(parsed.get(k, "")).strip()
+            if val:
+                out["oauth_access_token"] = val
+                break
+        cid = str(parsed.get("client_id", "")).strip()
+        csec = str(parsed.get("client_secret", "")).strip()
+        if cid:
+            out["auth_type"] = "OAUTH"
+            out["client_id"] = cid
+            if csec:
+                out["client_secret"] = csec
+        return out
+
+    raw = os.environ.get("TF_VAR_hubspot_auth", "").strip()
+    if raw:
+        try:
+            res = _extract(json.loads(raw))
+            if res:
+                return res
+        except Exception:
+            pass
+
+    env_file = os.path.join(workdir, ".env.hubspot")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                content = f.read()
+            for match in re.finditer(r"TF_VAR_hubspot_auth\s*=\s*['\"]?(\{.*?\})['\"]?", content):
+                res = _extract(json.loads(match.group(1)))
+                if res:
+                    return res
+        except Exception:
+            pass
+
+    if isinstance(tfvars, dict) and isinstance(tfvars.get("hubspot_auth"), dict):
+        res = _extract(tfvars.get("hubspot_auth"))
+        if res:
+            return res
+
+    return {}
+
+
 def sync_workspace_actions(workdir=".", state_path=None, tfvars_path=None):
     """
-    Persist actionConfig.isActionConfigured = true in Spanner for enabled Workspace action connectors.
+    Persist actionConfig.isActionConfigured = true in Spanner for enabled Workspace and HubSpot action connectors.
     Because ActionConfig.is_action_configured is marked OUTPUT_ONLY in data_connector.proto,
     Terraform's google_discovery_engine_data_connector omits it on create/update.
     """
@@ -1603,13 +1688,20 @@ def sync_workspace_actions(workdir=".", state_path=None, tfvars_path=None):
     actual_state = state_path or os.path.join(workdir, "terraform.tfstate")
     tfvars = parse_tfvars(actual_tfvars) or {}
 
-    if not is_workspace_actions_enabled(tfvars):
+    ws_enabled = is_workspace_actions_enabled(tfvars)
+    hubspot_cfg = tfvars.get("hubspot_config") if isinstance(tfvars.get("hubspot_config"), dict) else {}
+    hs_enabled = bool(tfvars.get("enable_hubspot_connector")) and bool(hubspot_cfg.get("enable_actions"))
+
+    if not ws_enabled and not hs_enabled:
         return 0
 
-    client_id, client_secret = resolve_workspace_oauth(tfvars, workdir=workdir)
-    if not client_id:
-        print("[WARN] Workspace Actions enabled, but OAuth client_id not found; skipping actionConfig sync.", file=sys.stderr)
-        return 0
+    client_id, client_secret = resolve_workspace_oauth(tfvars, workdir=workdir) if ws_enabled else ("", "")
+    if ws_enabled and not client_id:
+        print("[WARN] Workspace Actions enabled, but OAuth client_id not found; skipping Workspace actionConfig sync.", file=sys.stderr)
+        if not hs_enabled:
+            return 0
+
+    hs_action_params = resolve_hubspot_auth(tfvars, workdir=workdir) if hs_enabled else {}
 
     if not os.path.exists(actual_state):
         return 0
@@ -1636,7 +1728,7 @@ def sync_workspace_actions(workdir=".", state_path=None, tfvars_path=None):
             pass
 
     if not token:
-        print("[WARN] Could not obtain GCP access token for Workspace actionConfig sync.", file=sys.stderr)
+        print("[WARN] Could not obtain GCP access token for actionConfig sync.", file=sys.stderr)
         return 0
 
     ws_sources = {"google_calendar", "google_mail", "google_drive", "google_chat"}
@@ -1650,8 +1742,22 @@ def sync_workspace_actions(workdir=".", state_path=None, tfvars_path=None):
             attrs = inst.get("attributes", {})
             data_source = attrs.get("data_source", "")
             modes = attrs.get("connector_modes") or []
-            if data_source not in ws_sources or "ACTIONS" not in modes:
+            if "ACTIONS" not in modes:
                 continue
+
+            if data_source in ws_sources:
+                if not (ws_enabled and client_id):
+                    continue
+                action_params = {"auth_type": "OAUTH", "client_id": client_id}
+                if client_secret:
+                    action_params["client_secret"] = client_secret
+            elif data_source == "hubspot":
+                if not hs_enabled:
+                    continue
+                action_params = hs_action_params
+            else:
+                continue
+
             project = attrs.get("project", "")
             location = attrs.get("location", "global")
             collection_id = attrs.get("collection_id", "")
@@ -1662,17 +1768,16 @@ def sync_workspace_actions(workdir=".", state_path=None, tfvars_path=None):
                 f"https://discoveryengine.googleapis.com/v1alpha/projects/{project}"
                 f"/locations/{location}/collections/{collection_id}/dataConnector?updateMask=actionConfig"
             )
-            action_params = {"auth_type": "OAUTH", "client_id": client_id}
-            if client_secret:
-                action_params["client_secret"] = client_secret
+            action_cfg_payload = {
+                "isActionConfigured": True,
+                "createBapConnection": True,
+            }
+            if action_params:
+                action_cfg_payload["actionParams"] = action_params
 
             payload = {
                 "name": f"projects/{project}/locations/{location}/collections/{collection_id}/dataConnector",
-                "actionConfig": {
-                    "isActionConfigured": True,
-                    "createBapConnection": True,
-                    "actionParams": action_params,
-                },
+                "actionConfig": action_cfg_payload,
             }
             req = urllib.request.Request(
                 url,
@@ -1869,6 +1974,16 @@ def main():
         else:
             chosen_ws_actions_str = interactive_single_select(ws_actions_prompt, WORKSPACE_ACTIONS_OPTIONS, current_ws_actions)
         wizard_updates["enable_workspace_actions"] = (chosen_ws_actions_str == "true")
+
+    if "hubspot" in chosen_connectors:
+        hs_cfg = tfvars.get("hubspot_config") if isinstance(tfvars.get("hubspot_config"), dict) else {}
+        current_hs_actions = "true" if bool(hs_cfg.get("enable_actions", False)) else "false"
+        hs_actions_prompt = "HubSpot CRM Actions — enable CRM write actions (contacts, companies, deals & tickets) or federated search only?"
+        if args.non_interactive or not sys.stdin.isatty():
+            chosen_hs_actions_str = fallback_single_select(hs_actions_prompt, HUBSPOT_ACTIONS_OPTIONS, current_hs_actions)
+        else:
+            chosen_hs_actions_str = interactive_single_select(hs_actions_prompt, HUBSPOT_ACTIONS_OPTIONS, current_hs_actions)
+        wizard_updates["hubspot_enable_actions"] = (chosen_hs_actions_str == "true")
 
     # If Jira is planned, prompt for site URI if missing/placeholder
     if "jira" in chosen_connectors:

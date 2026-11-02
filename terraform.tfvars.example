@@ -160,7 +160,7 @@ hubspot_config = {
   entities                     = ["contacts", "companies", "deals", "tickets"]
   static_ip_enabled            = false
   enable_actions               = false
-  enabled_actions              = []
+  enabled_actions              = ["manage_crm_objects", "create_contact", "update_contact", "create_company", "update_company", "create_deal", "update_deal", "create_ticket", "update_ticket"]
 }
 
 # Note: Sensitive HubSpot Service Key / Private App token credentials should be passed via TF_VAR_hubspot_auth environment variable, e.g.:

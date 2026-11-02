@@ -254,11 +254,11 @@ The repository supports deploying the **HubSpot CRM Federated Data Connector** (
 
 | Requirement Dimension | Specification & Guidance (`hubspot_auth_type = "SERVICE_KEY"`) |
 | :--- | :--- |
-| **Connector Architecture** | `FEDERATED` (`data_source = "hubspot"`, `destination_configs` host `https://api.hubapi.com`). Real-time federated query execution across HubSpot CRM objects without copying data into persistent GCP storage. |
-| **Provisioned Entities** | `contacts`, `companies`, `deals`, `tickets` (singular names such as `contact`, `company`, `deal`, `ticket` are automatically normalized in `main.tf`). |
+| **Connector Architecture** | `FEDERATED` or `FEDERATED` + `ACTIONS` (`data_source = "hubspot"`, `destination_configs` host `https://api.hubapi.com`). Real-time federated query execution and CRM write actions across HubSpot CRM objects without copying data into persistent GCP storage. |
+| **Provisioned Entities & Actions** | **Entities:** `contacts`, `companies`, `deals`, `tickets` (singular names such as `contact`, `company`, `deal`, `ticket` are automatically normalized in `main.tf`).<br/>**BAP Write Actions (`enable_actions = true`):** `manage_crm_objects`, `create_contact`, `update_contact`, `create_company`, `update_company`, `create_deal`, `update_deal`, `create_ticket`, `update_ticket`. |
 | **HubSpot Service Key Setup** | In [app.hubspot.com](https://app.hubspot.com) (*Development > Keys > Service Keys*), create a Service Key (`pat-ap1-...` / `pat-na1-...` / `pat-eu1-...`) as a HubSpot Super Admin. |
-| **Required HubSpot CRM Scopes** | `crm.objects.contacts.read`, `crm.objects.companies.read`, `crm.objects.deals.read`, `crm.objects.owners.read` (and `tickets` read access if querying support tickets). |
-| **Required `terraform.tfvars` Settings** | `enable_hubspot_connector = true`, `hubspot_auth_type = "SERVICE_KEY"`, and `hubspot_config` (`instance_uri = "https://api.hubapi.com"`, `connector_modes = ["FEDERATED"]`). |
+| **Required HubSpot CRM Scopes** | **Federated Search:** `crm.objects.contacts.read`, `crm.objects.companies.read`, `crm.objects.deals.read`, `crm.objects.owners.read`, `crm.objects.tickets.read`, `tickets`<br/>**Write Actions (`enable_actions = true`):** `crm.objects.contacts.write`, `crm.objects.companies.write`, `crm.objects.deals.write`, `crm.objects.tickets.write`. |
+| **Required `terraform.tfvars` Settings** | `enable_hubspot_connector = true`, `hubspot_auth_type = "SERVICE_KEY"`, and `hubspot_config` (`instance_uri = "https://api.hubapi.com"`, `connector_modes = ["FEDERATED"]`, `enable_actions = true`). |
 | **Runtime Secret Environment Variable (`TF_VAR_hubspot_auth`)** | `export TF_VAR_hubspot_auth='{"service_key":"pat-ap1-..."}'` *(or `{"oauth_access_token":"pat-ap1-..."}`; both map automatically to Discovery Engine's `oauth_access_token` parameter)*. |
 | **Checklist & Helper Target** | `make hubspot-checklist` |
 

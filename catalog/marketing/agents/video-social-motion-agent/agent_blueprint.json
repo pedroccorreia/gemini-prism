@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0",
+  "id": "video-social-motion-agent",
+  "display_name": "Video & Social Motion Agent",
+  "description": "Low-code Gemini Enterprise video producer that turns campaign briefs and seed visuals into brand-governed Veo short-form promos using text-to-video, image-to-video, and first-to-last frame transitions.",
+  "category": "marketing",
+  "builder_surface": "GEMINI_ENTERPRISE_AGENT_DESIGNER",
+  "recommended_model": "gemini-2.5-pro",
+  "attached_skills": [
+    "brand-kit-governance"
+  ],
+  "platform_tools": [
+    "video_generation_veo",
+    "image_generation_imagen",
+    "enterprise_search"
+  ],
+  "federated_connectors": [
+    "google_drive",
+    "confluence",
+    "slack"
+  ],
+  "supported_video_modes": [
+    "text_to_video",
+    "image_to_video",
+    "first_to_last_frame"
+  ],
+  "starter_prompts": [
+    {
+      "title": "Launch Teaser Clip (Text-to-Video)",
+      "prompt": "Pull our latest campaign brief from Google Drive or Confluence, draft a 3-beat storyboard with camera and lighting cues, and generate the opening promotional clip using Veo."
+    },
+    {
+      "title": "Animate Hero Still (Image-to-Video)",
+      "prompt": "Take my uploaded hero visual (or generate a clean start frame first) and animate it with Veo using subtle parallax camera motion and brand-aligned lighting, plus social caption copy."
+    },
+    {
+      "title": "Product Reveal Transition (First-to-Last Frame)",
+      "prompt": "Design a seamless first-to-last frame transition in Veo moving from a macro glass detail opening frame to a clean minimalist end-card frame ready for our CTA super."
+    },
+    {
+      "title": "Vertical 9:16 Social Reel Package",
+      "prompt": "Build a 12-second 9:16 vertical social reel plan (3 x 4-second Veo clips) from our Slack/Confluence launch notes, including voiceover script, timed supers, and Veo renders."
+    }
+  ]
+}

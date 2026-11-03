@@ -1,4 +1,4 @@
-.PHONY: status configure check-inputs enable-connectors plan-foundation apply-foundation plan-governance apply-governance dwd-checklist workspace-actions-checklist jira-checklist confluence-checklist slack-checklist people-checklist hubspot-checklist geap-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify test help
+.PHONY: status configure check-inputs enable-connectors plan-foundation apply-foundation plan-governance apply-governance dwd-checklist workspace-actions-checklist jira-checklist confluence-checklist slack-checklist people-checklist hubspot-checklist geap-checklist plan-connectors apply-connectors licenses-dryrun licenses licenses-list verify check-marketing package-marketing deploy-marketing test help
 
 WAIT ?= 15m
 export GOOGLE_OAUTH_ACCESS_TOKEN ?= $(shell gcloud auth print-access-token 2>/dev/null)
@@ -32,6 +32,9 @@ help:
 	@echo "  licenses                    - Distribute subscription seats to customer environment projects"
 	@echo "  licenses-list               - List active license allocations and seat quotas"
 	@echo "  verify                      - Run post-deployment verification (WAIT=$(WAIT))"
+	@echo "  check-marketing             - Validate low-code marketing agents & skills catalog (<= 3 items)"
+	@echo "  package-marketing           - Build upload-ready Gemini Enterprise marketing skill .zip pack"
+	@echo "  deploy-marketing            - Deploy marketing skill & 2 low-code agents via v1alpha API (ARGS='--project <id>')"
 	@echo "  test                        - Run test harness and Terraform validation"
 
 status:
@@ -109,7 +112,17 @@ licenses-list:
 verify:
 	python3 scripts/verify.py --wait $(WAIT)
 
+check-marketing:
+	python3 scripts/package_marketing_assets.py --check $(ARGS)
+
+package-marketing:
+	python3 scripts/package_marketing_assets.py --build $(ARGS)
+
+deploy-marketing:
+	python3 scripts/deploy_marketing_assets.py $(ARGS)
+
 test:
+	python3 scripts/package_marketing_assets.py --check
 	python3 scripts/test_red.py
 	terraform fmt -check
 	terraform validate

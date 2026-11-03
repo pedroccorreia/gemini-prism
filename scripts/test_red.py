@@ -36,6 +36,8 @@ if REPO_ROOT not in sys.path:
 
 import scripts.allocate_licenses as alloc_module
 import scripts.configure as configure_module
+import scripts.deploy_marketing_assets as deploy_marketing_module
+import scripts.package_marketing_assets as marketing_module
 import scripts.plan_guard as plan_guard_module
 import scripts.status as status_module
 import scripts.verify as verify_module
@@ -3116,6 +3118,226 @@ class TestWorkspaceActionsConfig(unittest.TestCase):
                 if old_auth is not None:
                     os.environ["TF_VAR_workspace_auth"] = old_auth
 
+
+class TestMarketingCatalogAndPackager(unittest.TestCase):
+    """Contract and adversarial tests for the <= 3 item Low-Code Marketing Asset Pack."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _copy_catalog_to_temp(self):
+        import shutil
+        dst = os.path.join(self.temp_dir.name, "marketing")
+        shutil.copytree(marketing_module.DEFAULT_CATALOG_DIR, dst)
+        return dst
+
+    def test_live_marketing_catalog_passes_strict_budget_and_schema(self):
+        """Live catalog must contain 2 low-code agents + 1 shared skill (3 <= 3) and pass all checks."""
+        report = marketing_module.validate_catalog()
+        self.assertTrue(report["valid"], f"Live marketing catalog failed validation: {report['errors']}")
+        self.assertEqual(report["total_items"], 3)
+        self.assertLessEqual(report["total_items"], 3)
+        self.assertEqual(len(report["skills"]), 1)
+        self.assertEqual(len(report["agents"]), 2)
+
+        skill_ids = [s["id"] for s in report["skills"]]
+        self.assertEqual(skill_ids, ["brand-kit-governance"])
+
+        agent_ids = sorted(a["id"] for a in report["agents"])
+        self.assertEqual(agent_ids, ["video-social-motion-agent", "visual-copy-campaign-agent"])
+
+    def test_adversarial_fourth_item_exceeds_budget_and_fails(self):
+        """Adding a 4th agent or skill must fail validation with exit code 1."""
+        cat_dir = self._copy_catalog_to_temp()
+        extra_skill = os.path.join(cat_dir, "skills", "extra-fourth-skill")
+        os.makedirs(extra_skill, exist_ok=True)
+        with open(os.path.join(extra_skill, "SKILL.md"), "w", encoding="utf-8") as f:
+            f.write(
+                "---\nname: extra-fourth-skill\ndescription: Extra skill exceeding cap.\n---\n\n"
+                + ("Detailed instructions for extra skill. " * 4)
+            )
+
+        proc = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(REPO_ROOT, "scripts", "package_marketing_assets.py"),
+                "--check",
+                "--catalog-dir",
+                cat_dir,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("Catalog budget exceeded: found 4 items", proc.stdout)
+
+    def test_adversarial_broken_skill_reference_and_missing_frontmatter_fails(self):
+        """Broken relative reference link or missing YAML frontmatter in SKILL.md must fail."""
+        cat_dir = self._copy_catalog_to_temp()
+        skill_md = os.path.join(cat_dir, "skills", "brand-kit-governance", "SKILL.md")
+        with open(skill_md, "a", encoding="utf-8") as f:
+            f.write("\nSee [missing](references/non_existent_guide.md).\n")
+
+        report = marketing_module.validate_catalog(catalog_dir=cat_dir)
+        self.assertFalse(report["valid"])
+        self.assertTrue(any("non_existent_guide.md" in err for err in report["errors"]))
+
+    def test_adversarial_dangling_attached_skill_in_agent_blueprint_fails(self):
+        """Agent blueprint referencing an unknown skill must fail validation."""
+        cat_dir = self._copy_catalog_to_temp()
+        bp_path = os.path.join(
+            cat_dir, "agents", "visual-copy-campaign-agent", "agent_blueprint.json"
+        )
+        with open(bp_path, "r", encoding="utf-8") as f:
+            bp = json.load(f)
+        bp["attached_skills"] = ["unknown-skill-id"]
+        with open(bp_path, "w", encoding="utf-8") as f:
+            json.dump(bp, f)
+
+        report = marketing_module.validate_catalog(catalog_dir=cat_dir)
+        self.assertFalse(report["valid"])
+        self.assertTrue(any("unknown-skill-id" in err for err in report["errors"]))
+
+    def test_build_packages_creates_deterministic_root_folder_zip_and_manifest(self):
+        """--build must emit brand-kit-governance.zip with 'brand-kit-governance/SKILL.md' root layout."""
+        import zipfile
+        out_dir = os.path.join(self.temp_dir.name, "dist")
+        manifest1 = marketing_module.build_packages(output_dir=out_dir)
+        self.assertEqual(manifest1["total_items"], 3)
+        self.assertEqual(len(manifest1["skills"]), 1)
+
+        zip_path = manifest1["skills"][0]["zip_path"]
+        self.assertTrue(os.path.isfile(zip_path))
+
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            names = zf.namelist()
+            self.assertIn("brand-kit-governance/", names)
+            self.assertIn("brand-kit-governance/SKILL.md", names)
+            self.assertIn("brand-kit-governance/references/brand_guidelines.template.md", names)
+            self.assertIn("brand-kit-governance/references/imagen_prompt_matrix.md", names)
+            self.assertIn("brand-kit-governance/references/veo_cinematography_guide.md", names)
+            for entry in names:
+                self.assertTrue(
+                    entry.startswith("brand-kit-governance/"),
+                    f"ZIP entry '{entry}' must live under top-level 'brand-kit-governance/' folder",
+                )
+
+        # Verify byte-for-byte deterministic SHA-256 across rebuilds
+        out_dir_2 = os.path.join(self.temp_dir.name, "dist2")
+        manifest2 = marketing_module.build_packages(output_dir=out_dir_2)
+        self.assertEqual(manifest1["skills"][0]["sha256"], manifest2["skills"][0]["sha256"])
+
+    def test_marketing_files_contain_zero_leak_patterns(self):
+        """All files under catalog/ and marketing scripts must contain zero leak patterns."""
+        targets = [
+            os.path.join(REPO_ROOT, "scripts", "package_marketing_assets.py"),
+            os.path.join(REPO_ROOT, "scripts", "deploy_marketing_assets.py"),
+        ]
+        for root, _, files in os.walk(os.path.join(REPO_ROOT, "catalog")):
+            for fname in files:
+                targets.append(os.path.join(root, fname))
+
+        leaks = []
+        for path in targets:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                text = f.read().lower()
+            for pattern in TestDataScrubbing.LEAK_PATTERNS:
+                if pattern.lower() in text:
+                    leaks.append((os.path.relpath(path, REPO_ROOT), pattern))
+        self.assertEqual(leaks, [], f"Leak patterns detected in marketing files: {leaks}")
+
+    def test_deploy_marketing_skill_display_name_and_workflow_graph_contract(self):
+        """Workflow payloads must form valid acyclic trees with skillAgentNames and normalized skill display name."""
+        disp = deploy_marketing_module.skill_id_to_display_name("brand-kit-governance")
+        self.assertEqual(disp, "Brand Kit Governance")
+        self.assertRegex(disp.lower().replace(" ", "-"), r"^[a-z0-9-]+$")
+
+        fake_skill_res = (
+            "projects/123456/locations/global/collections/default_collection"
+            "/engines/test-engine/assistants/default_assistant/agents/999"
+        )
+        fake_env = {
+            "connectors_by_source": {
+                "google_drive": "projects/123456/locations/global/collections/drive-col/dataConnector",
+                "confluence": "projects/123456/locations/global/collections/conf-col/dataConnector",
+                "slack": "projects/123456/locations/global/collections/slack-col/dataConnector",
+            },
+            "data_store_specs": [
+                {"dataStore": "projects/123456/locations/global/collections/default_collection/dataStores/ds1"}
+            ],
+        }
+
+        for agent_id in ("visual-copy-campaign-agent", "video-social-motion-agent"):
+            ag_dir = os.path.join(marketing_module.DEFAULT_CATALOG_DIR, "agents", agent_id)
+            with open(os.path.join(ag_dir, "agent_blueprint.json"), "r", encoding="utf-8") as f:
+                bp = json.load(f)
+            instr = deploy_marketing_module._extract_system_instruction(
+                os.path.join(ag_dir, "AGENT.md")
+            )
+            payload = deploy_marketing_module.build_workflow_agent_payload(
+                blueprint=bp,
+                system_instruction=instr,
+                skill_resource_name=fake_skill_res,
+                env_info=fake_env,
+                model="gemini-3.1-pro-preview",
+                sharing_scope="ALL_USERS",
+            )
+            self.assertEqual(payload["sharingConfig"]["scope"], "ALL_USERS")
+            self.assertEqual(len(payload["starterPrompts"]), 4)
+
+            wf = payload["workflowAgentDefinition"]
+            nodes = wf["agentFlow"]["nodes"]
+            edges = wf["agentFlow"]["edges"]
+            self.assertEqual(len(nodes), 3)
+            self.assertEqual(len(edges), 2)
+            self.assertEqual(nodes[0]["id"], wf["triggerNodeId"])
+            self.assertEqual(nodes[0]["nodeType"], "CHAT_TRIGGER")
+
+            in_degrees = {}
+            for edge in edges:
+                tgt = edge["targetNodeId"]
+                in_degrees[tgt] = in_degrees.get(tgt, 0) + 1
+            for count in in_degrees.values():
+                self.assertEqual(count, 1, "Workflow graph must be a strict tree (in-degree <= 1)")
+
+            for node in nodes[1:]:
+                self.assertEqual(node["nodeType"], "AGENT_NODE")
+                self.assertIn(fake_skill_res, node["agentNode"]["skillAgentNames"])
+                self.assertNotIn("${nodes.", node["agentNode"]["instruction"])
+                self.assertNotIn(".output.", node["agentNode"]["instruction"])
+
+    @patch("scripts.deploy_marketing_assets.get_access_token", return_value="fake-token")
+    @patch("scripts.deploy_marketing_assets.api_request")
+    def test_deploy_pack_dry_run_makes_zero_write_requests(self, mock_api, _mock_tok):
+        """deploy_pack(dry_run=True) must never issue POST, PATCH, or DELETE requests."""
+        def fake_api(method, url, *args, **kwargs):
+            self.assertEqual(method, "GET", f"Dry run issued non-GET request: {method} {url}")
+            if url.endswith("/engines"):
+                return {
+                    "engines": [
+                        {
+                            "name": "projects/123456/locations/global/collections/default_collection/engines/test-engine",
+                            "dataStoreIds": ["google-drive-actions-collection_google_drive"],
+                        }
+                    ]
+                }
+            if url.endswith("/collections"):
+                return {"collections": []}
+            return {}
+
+        mock_api.side_effect = fake_api
+        out_dir = os.path.join(self.temp_dir.name, "dist_dry")
+        res = deploy_marketing_module.deploy_pack(
+            project="example-customer-prod",
+            engine_id="test-engine",
+            output_dir=out_dir,
+            dry_run=True,
+        )
+        self.assertEqual(res["mode"], "DRY_RUN")
+        self.assertEqual(res["manifest"]["total_items"], 3)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "id": "visual-copy-campaign-agent",
+  "display_name": "Visual & Copy Campaign Agent",
+  "description": "Low-code Gemini Enterprise marketing specialist that turns product briefs into brand-governed Imagen visuals across 1:1, 16:9, and 9:16 formats paired with channel-ready ad copy, CTAs, and alt-text.",
+  "category": "marketing",
+  "builder_surface": "GEMINI_ENTERPRISE_AGENT_DESIGNER",
+  "recommended_model": "gemini-2.5-pro",
+  "attached_skills": [
+    "brand-kit-governance"
+  ],
+  "platform_tools": [
+    "image_generation_imagen",
+    "enterprise_search"
+  ],
+  "federated_connectors": [
+    "google_drive",
+    "confluence",
+    "slack"
+  ],
+  "supported_aspect_ratios": [
+    "1:1",
+    "16:9",
+    "9:16"
+  ],
+  "starter_prompts": [
+    {
+      "title": "Multi-Format Launch Pack (1:1, 16:9, 9:16)",
+      "prompt": "Find our latest product launch brief in Google Drive or Confluence and generate a coordinated 1:1 LinkedIn card, 16:9 web hero banner, and 9:16 vertical story visual using Imagen, complete with headlines, CTAs, and alt-text."
+    },
+    {
+      "title": "A/B Social Ad Creative Variants",
+      "prompt": "Create two distinct 1:1 visual concepts in Imagen—one authentic editorial workspace lifestyle shot and one minimalist optical studio product visual—with paired A/B ad copy for our upcoming webinar."
+    },
+    {
+      "title": "Website Hero Banner with Copy Safe Zone",
+      "prompt": "Design a 16:9 widescreen hero visual in Imagen with clean left-side negative space for a headline overlay, grounded in our brand palette, and draft 3 crisp value-proposition headlines."
+    },
+    {
+      "title": "Seed Keyframe for Video Motion Handoff",
+      "prompt": "Generate a high-contrast 9:16 hero keyframe in Imagen for a social promo reel and output a ready-to-paste image-to-video handoff brief for the Video & Social Motion Agent."
+    }
+  ]
+}

@@ -155,6 +155,9 @@ make people-checklist            # Print Google People Directory DWD verificatio
 make plan-governance             # Guarded GEAP-only plan for existing Stage 3–5 deployments
 make apply-governance            # Apply GEAP Foundation without touching running connectors
 make geap-checklist              # Print Agent Registry & Day-2 governance handoff manifest
+make check-marketing             # Validate low-code marketing agents & skills catalog (<= 3 cap)
+make package-marketing           # Build upload-ready Gemini Enterprise marketing skill .zip pack
+make deploy-marketing            # Deploy marketing skill & 2 low-code agents via API (ARGS='--project <id>')
 make test                        # Run contract tests (test_red.py), fmt & terraform validate
 ```
 
@@ -164,14 +167,18 @@ make test                        # Run contract tests (test_red.py), fmt & terra
 
 ```text
 ├── assets/                  # Brand identity SVGs, architecture/lifecycle diagrams & optical hero art
+├── catalog/
+│   └── marketing/           # 3-item Low-Code Marketing Agents & Skill Pack (Imagen + Veo)
 ├── config/                  # Declarative seat allocation template & Terraform-emitted runtime mapping
-├── docs/                    # Enterprise connectors release matrix (CONNECTORS_ROADMAP.md)
+├── docs/                    # Enterprise connectors release matrix (CONNECTORS_ROADMAP.md) & review roadmap
 ├── scripts/
 │   ├── status.py            # Live Stage 0–5 state machine & admin checklist renderer
 │   ├── configure.py         # Zero-dependency TTY/JSON onboarding wizard & Stage 2 gate validator
 │   ├── plan_guard.py        # Non-destructive .tfplan barrier (refuses deletes/replacements)
 │   ├── allocate_licenses.py # Cloud Billing seat discovery, distribution & User Store binding
 │   ├── verify.py            # End-to-end connector & engine ACTIVE health verifier
+│   ├── package_marketing_assets.py # Marketing agents & skill catalog validator + .zip packager
+│   ├── deploy_marketing_assets.py  # Discovery Engine v1alpha marketing skill & workflow deployer
 │   └── test_red.py          # Negative, safety-rail & contract test suite
 ├── AGENTS.md                # Autonomous agent operational protocol & human gate hand-off templates
 ├── Makefile                 # Unified operator & agent command surface

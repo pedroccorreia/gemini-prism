@@ -168,7 +168,24 @@ def run_preflight_assertions(allocations, billing_account, license_config_id, ce
     total_capacity = int(pool_cfg.get("licenseCount", "0"))
     available_capacity = pool_cfg.get("availableLicenseCount")
 
-    total_requested_seats = sum(int(item.get("seat_count", 0)) for item in allocations)
+    # Compute net additional seats needed across projects (accounting for already-distributed active seats)
+    total_requested_seats = 0
+    for item in allocations:
+        target = int(item.get("seat_count", 0))
+        if target <= 0:
+            continue
+        p_id = item.get("project_id")
+        current_active = 0
+        if p_id:
+            try:
+                existing_cfgs = get_license_configs(p_id, location, token)
+                if isinstance(existing_cfgs, list):
+                    active_cfg = next((c for c in existing_cfgs if isinstance(c, dict) and c.get("state") == "ACTIVE" and not c.get("freeTrial")), None)
+                    if active_cfg:
+                        current_active = int(active_cfg.get("licenseCount", "0"))
+            except Exception:
+                current_active = 0
+        total_requested_seats += max(0, target - current_active)
 
     print(f"    Total Pool Capacity : {total_capacity}")
     if available_capacity is not None:
@@ -416,6 +433,7 @@ def main():
     parser.add_argument("--distribute", action="store_true", help="Distribute subscription seats from Billing Account to project numbers.")
     parser.add_argument("--configure-auto-register", action="store_true", help="Configure projects to auto-provision licenses upon user login.")
     parser.add_argument("--retract", action="store_true", help="Retract distributed licenses back to the Billing Account pool.")
+    parser.add_argument("--retract-count", type=int, default=None, help="Optional partial seat count to retract (sets fullRetract=false).")
     parser.add_argument("--config-file", default="config/license_allocations.json", help="Path to JSON configuration file.")
     parser.add_argument("--billing-account", help="Override Billing Account ID.")
     parser.add_argument("--license-config", help="Override Billing Account License Config ID.")
@@ -429,12 +447,20 @@ def main():
 
     args = parser.parse_args()
 
-    # Load configuration
+    # Load configuration (allow --discover with CLI overrides or partial config before Stage 3)
+    config_data = {}
     try:
         config_data = load_config(args.config_file)
     except Exception as e:
-        print(f"Error loading configuration: {e}", file=sys.stderr)
-        sys.exit(1)
+        if args.discover and (args.billing_account or os.path.exists(args.config_file)):
+            try:
+                with open(args.config_file, "r") as f:
+                    config_data = json.load(f) if os.path.exists(args.config_file) else {}
+            except Exception:
+                config_data = {}
+        else:
+            print(f"Error loading configuration: {e}", file=sys.stderr)
+            sys.exit(1)
 
     project_id = args.project or config_data.get("licensing_project")
     billing_account = args.billing_account or config_data.get("billing_account")
@@ -590,11 +616,16 @@ def main():
             active_cfg = next((c for c in cfgs if c.get("state") == "ACTIVE" and not c.get("freeTrial")), None)
             if active_cfg:
                 full_cfg_name = active_cfg["name"]
-                print(f"  • Retracting license from {t_proj} ({full_cfg_name.split('/')[-1]})...")
+                is_partial = args.retract_count is not None and args.retract_count > 0
+                mode_label = f"{args.retract_count} seat(s)" if is_partial else "all seats"
+                print(f"  • Retracting {mode_label} from {t_proj} ({full_cfg_name.split('/')[-1]})...")
                 if not args.dry_run:
                     retract_url = f"https://discoveryengine.googleapis.com/v1alpha/billingAccounts/{billing_account}/billingAccountLicenseConfigs/{license_config_id}:retractLicenseConfig"
+                    retract_body = {"licenseConfig": full_cfg_name, "fullRetract": not is_partial}
+                    if is_partial:
+                        retract_body["retractLicenseCount"] = str(args.retract_count)
                     try:
-                        make_request(retract_url, method="POST", body={"licenseConfig": full_cfg_name, "fullRetract": True}, token=token, project_id=project_id)
+                        make_request(retract_url, method="POST", body=retract_body, token=token, project_id=project_id)
                     except Exception as e:
                         print(f"  [ERROR] Failed to retract license for {t_proj}: {e}", file=sys.stderr)
 

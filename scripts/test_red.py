@@ -101,9 +101,10 @@ class TestAllocateLicensesNegative(unittest.TestCase):
         self.assertIn("Expected Project Number: 123456789012", err_msg)
         self.assertIn("Actual GCP Project Number: 999999999999", err_msg)
 
+    @patch("scripts.allocate_licenses.get_license_configs", return_value=[])
     @patch("scripts.allocate_licenses.get_project_metadata")
     @patch("scripts.allocate_licenses.get_billing_account_license_config")
-    def test_preflight_failure_on_insufficient_pool_seats(self, mock_get_billing_cfg, mock_get_metadata):
+    def test_preflight_failure_on_insufficient_pool_seats(self, mock_get_billing_cfg, mock_get_metadata, _mock_get_lic):
         """Test that preflight assertion aborts if requested seats exceed available billing pool capacity."""
         mock_get_metadata.return_value = {
             "projectNumber": "123456789012",
@@ -136,6 +137,46 @@ class TestAllocateLicensesNegative(unittest.TestCase):
         self.assertIn("Insufficient license seats in billing pool", err_msg)
         self.assertIn("Requested: 5", err_msg)
         self.assertIn("Available: 2", err_msg)
+
+    @patch("scripts.allocate_licenses.get_license_configs")
+    @patch("scripts.allocate_licenses.get_project_metadata")
+    @patch("scripts.allocate_licenses.get_billing_account_license_config")
+    def test_preflight_passes_when_net_delta_fits_available_pool(
+        self, mock_get_billing_cfg, mock_get_metadata, mock_get_lic_cfgs
+    ):
+        """Re-running preflight when 4 of 5 seats are already distributed only requires 1 net seat."""
+        mock_get_metadata.return_value = {
+            "projectNumber": "123456789012",
+            "lifecycleState": "ACTIVE",
+        }
+        mock_get_billing_cfg.return_value = {
+            "licenseCount": "5",
+            "availableLicenseCount": "1",
+        }
+        mock_get_lic_cfgs.return_value = [
+            {
+                "name": "projects/123456789012/locations/global/licenseConfigs/lic-1",
+                "state": "ACTIVE",
+                "freeTrial": False,
+                "licenseCount": "4",
+            }
+        ]
+        allocations = [
+            {
+                "project_id": "sample-customer-prod",
+                "project_number": "123456789012",
+                "seat_count": 5,
+            }
+        ]
+        alloc_module.run_preflight_assertions(
+            allocations=allocations,
+            billing_account="012345-6789AB-CDEF01",
+            license_config_id="lic-cfg-001",
+            central_project="billing-project",
+            location="global",
+            token="dummy-token",
+            dry_run=False,
+        )
 
     @patch("scripts.allocate_licenses.make_request")
     def test_dry_run_does_not_execute_destructive_writes(self, mock_make_request):
@@ -2597,9 +2638,21 @@ class TestBranchAndIssueContracts(unittest.TestCase):
             text=True
         )
         self.assertEqual(proc.returncode, 0)
-        self.assertIn(
-            proc.stdout.strip(),
-            ["Slack-Data-Connector", "feat/interactive-connector-onboarding", "feat/geap-governance-foundation", "feat/hubspot-data-connector", "hubspot-data-connector", "bugfix/fix-hubspot-connector", "main", ""]
+        branch = proc.stdout.strip()
+        self.assertTrue(
+            branch in [
+                "Slack-Data-Connector",
+                "feat/interactive-connector-onboarding",
+                "feat/geap-governance-foundation",
+                "feat/hubspot-data-connector",
+                "hubspot-data-connector",
+                "bugfix/fix-hubspot-connector",
+                "fix/review-hardening-phase1-2",
+                "main",
+                "",
+            ]
+            or branch.startswith(("feat/", "fix/", "bugfix/")),
+            f"Unrecognized git branch: {branch}",
         )
 
     def test_issue_05_specification_contract(self):

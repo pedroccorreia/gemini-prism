@@ -65,6 +65,7 @@ locals {
 
   # Map of all services that need to be enabled per customer environment project
   base_services = [
+    "serviceusage.googleapis.com",
     "discoveryengine.googleapis.com",
     "cloudidentity.googleapis.com",
     "admin.googleapis.com",
@@ -994,7 +995,8 @@ resource "google_discovery_engine_assistant" "default" {
 
 # 9. Emit License Allocations Configuration as Single Source of Truth
 resource "local_file" "license_allocations" {
-  filename = "${path.module}/config/license_allocations.json"
+  filename        = "${path.module}/config/license_allocations.json"
+  file_permission = "0600"
   content = jsonencode({
     licensing_project = try(coalesce(var.billing_project, try(values(google_project.projects)[0].project_id, "")), "")
     billing_account   = var.billing_account

@@ -138,17 +138,17 @@ Google Workspace requires two distinct administrative actions: one **before Stag
 | **Super Administrator** (Domain-Wide Delegation) | [admin.google.com/ac/owl/domainwidedelegation](https://admin.google.com/ac/owl/domainwidedelegation) | **Stage 2 Gate** | Authorizes each environment's Discovery Engine Service Agent (`service-<PROJECT_NUMBER>@gcp-sa-discoveryengine.iam.gserviceaccount.com`) using its **21-digit numeric `client_id` (`uniqueId`)** and the 9 read-only OAuth scopes output by `make dwd-checklist`. |
 | **Google Cloud Core Services API Control** | *Security > Access and data control > API controls > Google Cloud Core Services* | **Stage 2 Gate** | Confirm that the created customer GCP environment project IDs are permitted to access Google Workspace APIs if tenant-level API restrictions are enforced. |
 
-##### Exact 9 OAuth 2.0 Scopes Required for Domain-Wide Delegation
+##### Exact 12 OAuth 2.0 Scopes Required for Domain-Wide Delegation
 
 Copy and paste this exact comma-separated string (also emitted by `make dwd-checklist` under `oauth_scopes_csv`) into the Google Workspace Domain-Wide Delegation dialog for each environment's 21-digit Client ID:
 
 ```bash
-https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly,https://www.googleapis.com/auth/chat.memberships.readonly
+https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly,https://www.googleapis.com/auth/admin.directory.orgunit.readonly,https://www.googleapis.com/auth/admin.directory.userschema.readonly,https://www.googleapis.com/auth/directory.readonly,https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/chat.spaces.readonly,https://www.googleapis.com/auth/chat.messages.readonly,https://www.googleapis.com/auth/chat.memberships.readonly
 ```
 
 | Connector / Subsystem | Required OAuth 2.0 Scope | Access Level & Security Posture |
 | :--- | :--- | :--- |
-| **Google Workspace Directory & Identity ACLs (`GSUITE`)** | `https://www.googleapis.com/auth/admin.directory.user.readonly`<br/>`https://www.googleapis.com/auth/admin.directory.group.readonly`<br/>`https://www.googleapis.com/auth/admin.directory.group.member.readonly` | Read-only directory inspection to resolve user profiles and group memberships for search ACL enforcement. |
+| **Google Workspace Directory, Identity ACLs (`GSUITE`) & People Directory** | `https://www.googleapis.com/auth/admin.directory.user.readonly`<br/>`https://www.googleapis.com/auth/admin.directory.group.readonly`<br/>`https://www.googleapis.com/auth/admin.directory.group.member.readonly`<br/>`https://www.googleapis.com/auth/admin.directory.orgunit.readonly`<br/>`https://www.googleapis.com/auth/admin.directory.userschema.readonly`<br/>`https://www.googleapis.com/auth/directory.readonly` | Read-only directory inspection to resolve user profiles, org units, custom employee schemas, and group memberships for search ACL enforcement and People Directory sync. |
 | **Gmail Connector (`google_mail`)** | `https://www.googleapis.com/auth/gmail.readonly` | Read-only real-time federated query execution across user mail threads. |
 | **Calendar Connector (`google_calendar`)** | `https://www.googleapis.com/auth/calendar.readonly` | Read-only real-time federated query execution across user calendar events. |
 | **Drive Connector (`google_drive`)** | `https://www.googleapis.com/auth/drive.readonly` | Read-only real-time federated query execution across Google Drive files and shared drives. |
@@ -195,7 +195,7 @@ The repository supports deploying the **Atlassian Jira Data Connector** (`jira-c
 | Requirement Dimension | Option A: OAuth 2.0 3LO / 2LO (`jira_auth_type = "OAUTH"`) — **Recommended** | Option B: API Token / Basic Auth (`jira_auth_type = "BASIC_AUTH"` or `"API_TOKEN"`) |
 | :--- | :--- | :--- |
 | **Connector Version (`data_source_version`)** | `3` (Automatically selected by `main.tf` when `jira_auth_type` is `OAUTH`, `OAUTH2`, or `OAUTH_TWO_LEGGED`) | `1` (Automatically selected by `main.tf` when `jira_auth_type` is `BASIC_AUTH` or `API_TOKEN`) |
-| **Supported Modes (`connector_modes`)** | `["DATA_INGESTION"]` or `["DATA_INGESTION", "ACTIONS"]` (BAP Actions require OAuth 2.0) | `["DATA_INGESTION"]` only (`enable_actions` must be `false`) |
+| **Supported Modes (`connector_modes`)** | `["FEDERATED"]` or `["FEDERATED", "ACTIONS"]` (BAP Actions require OAuth 2.0) | `["FEDERATED"]` only (`enable_actions` must be `false`; Data Center / Server only) |
 | **Provisioned Entities** | `project`, `issue`, `attachment`, `comment`, `worklog` (configurable via `jira_config.entities`, with optional `project_keys_include` / `project_keys_exclude` filters) | `project`, `issue`, `attachment`, `comment`, `worklog` |
 | **Atlassian App / Token Setup** | Create an OAuth 2.0 (3LO) integration in [Atlassian Developer Console](https://developer.atlassian.com/console/myapps/) | Generate an API token at [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens) |
 | **OAuth Callback / Redirect URLs** | **Ingestion Callback:** `https://vertexaisearch.cloud.google.com/console/oauth/jira_oauth.html`<br/>**Actions Callback:** `https://vertexaisearch.cloud.google.com/oauth-redirect` | Not applicable |

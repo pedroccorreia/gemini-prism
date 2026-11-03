@@ -36,7 +36,7 @@ import scripts.package_marketing_assets as packager
 
 API_BASE = "https://discoveryengine.googleapis.com/v1alpha"
 UPLOAD_BASE = "https://discoveryengine.googleapis.com/upload/v1alpha"
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 def get_access_token() -> str:
@@ -132,7 +132,7 @@ def discover_environment(
 
     # Map relevant federated data stores attached to the engine
     ds_ids = selected_engine.get("dataStoreIds", [])
-    preferred_prefixes = ("google-drive", "confluence", "slack")
+    preferred_prefixes = ("drive-collection", "google-drive", "confluence", "slack", "hubspot", "jira")
     matched_ds_specs = []
     for ds_id in ds_ids:
         if any(ds_id.startswith(pref) for pref in preferred_prefixes):
